@@ -1,0 +1,59 @@
+import '../../../models/models.dart';
+
+abstract class AuthRepository {
+  /// Login with username and password
+  Future<AuthResult> login(String username, String password);
+  
+  /// Logout current user
+  Future<void> logout();
+  
+  /// Refresh authentication token
+  Future<bool> refreshToken();
+  
+  /// Get current user profile
+  Future<User?> getCurrentUser();
+  
+  /// Check if user is authenticated
+  Future<bool> isAuthenticated();
+  
+  /// Get stored authentication token
+  Future<String?> getToken();
+  
+  /// Stream of authentication state changes
+  Stream<AuthState> get authStateStream;
+  
+  /// Auto-login using stored credentials
+  Future<AuthResult> autoLogin();
+}
+
+class AuthResult {
+  final bool success;
+  final User? user;
+  final String? token;
+  final String? refreshToken;
+  final String? error;
+  final DateTime? tokenExpiry;
+
+  const AuthResult({
+    required this.success,
+    this.user,
+    this.token,
+    this.refreshToken,
+    this.error,
+    this.tokenExpiry,
+  });
+
+  AuthResult.success({
+    required this.user,
+    required this.token,
+    this.refreshToken,
+    this.tokenExpiry,
+  }) : success = true, error = null;
+
+  AuthResult.failure(this.error) 
+      : success = false, 
+        user = null, 
+        token = null, 
+        refreshToken = null,
+        tokenExpiry = null;
+}

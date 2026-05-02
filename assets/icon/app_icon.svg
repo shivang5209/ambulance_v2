@@ -1,0 +1,10 @@
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+  <!-- Red background with rounded corners -->
+  <rect width="1024" height="1024" rx="200" ry="200" fill="#E53935"/>
+
+  <!-- Bold white plus sign -->
+  <!-- Vertical bar -->
+  <rect x="412" y="212" width="200" height="600" rx="40" fill="#FFFFFF"/>
+  <!-- Horizontal bar -->
+  <rect x="212" y="412" width="600" height="200" rx="40" fill="#FFFFFF"/>
+</svg>

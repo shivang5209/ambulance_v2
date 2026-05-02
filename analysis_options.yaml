@@ -1,0 +1,20 @@
+include: package:flutter_lints/flutter.yaml
+
+linter:
+  rules:
+    - prefer_const_constructors
+    - prefer_const_literals_to_create_immutables
+    - avoid_print
+    - prefer_single_quotes
+    - always_declare_return_types
+    - annotate_overrides
+    - await_only_futures
+    - cancel_subscriptions
+    - close_sinks
+    - prefer_final_fields
+    - prefer_final_locals
+    - unnecessary_brace_in_string_interps
+    - unnecessary_const
+    - unnecessary_new
+    - unnecessary_this
+    - use_key_in_widget_constructors

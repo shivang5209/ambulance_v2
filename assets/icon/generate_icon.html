@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Generate App Icon</title>
+</head>
+<body>
+    <h2>Medical Plus Icon Generator</h2>
+    <canvas id="canvas" width="1024" height="1024"></canvas>
+    <br>
+    <button onclick="download('icon-1024.png')">Download 1024x1024</button>
+    <button onclick="downloadSmall()">Download All Sizes</button>
+
+    <script>
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+
+        // App theme primary color (vibrant blue)
+        const primaryBlue = '#2563EB';
+        const white = '#FFFFFF';
+
+        function drawIcon(size) {
+            const tempCanvas = document.createElement('canvas');
+            tempCanvas.width = size;
+            tempCanvas.height = size;
+            const tempCtx = tempCanvas.getContext('2d');
+
+            // White background with rounded corners
+            tempCtx.fillStyle = white;
+            tempCtx.fillRect(0, 0, size, size);
+
+            // Draw blue rounded rectangle background
+            const padding = size * 0.1;
+            const cornerRadius = size * 0.15;
+
+            tempCtx.fillStyle = primaryBlue;
+            roundRect(tempCtx, padding, padding, size - padding * 2, size - padding * 2, cornerRadius);
+
+            // Draw white plus sign (medical cross)
+            const plusWidth = size * 0.15;
+            const plusLength = size * 0.5;
+            const centerX = size / 2;
+            const centerY = size / 2;
+
+            tempCtx.fillStyle = white;
+
+            // Vertical bar
+            tempCtx.fillRect(
+                centerX - plusWidth / 2,
+                centerY - plusLength / 2,
+                plusWidth,
+                plusLength
+            );
+
+            // Horizontal bar
+            tempCtx.fillRect(
+                centerX - plusLength / 2,
+                centerY - plusWidth / 2,
+                plusLength,
+                plusWidth
+            );
+
+            return tempCanvas;
+        }
+
+        function roundRect(ctx, x, y, width, height, radius) {
+            ctx.beginPath();
+            ctx.moveTo(x + radius, y);
+            ctx.lineTo(x + width - radius, y);
+            ctx.quadraticCurveTo(x + width, y, x + width, y + radius);
+            ctx.lineTo(x + width, y + height - radius);
+            ctx.quadraticCurveTo(x + width, y + height, x + width - radius, y + height);
+            ctx.lineTo(x + radius, y + height);
+            ctx.quadraticCurveTo(x, y + height, x, y + height - radius);
+            ctx.lineTo(x, y + radius);
+            ctx.quadraticCurveTo(x, y, x + radius, y);
+            ctx.closePath();
+            ctx.fill();
+        }
+
+        // Draw initial 1024x1024 icon
+        const iconCanvas = drawIcon(1024);
+        ctx.drawImage(iconCanvas, 0, 0);
+
+        function download(filename) {
+            const link = document.createElement('a');
+            link.download = filename;
+            link.href = canvas.toDataURL();
+            link.click();
+        }
+
+        function downloadSmall() {
+            // Download different sizes
+            const sizes = [192, 512];
+            sizes.forEach(size => {
+                const iconCanvas = drawIcon(size);
+                const link = document.createElement('a');
+                link.download = `icon-${size}.png`;
+                link.href = iconCanvas.toDataURL();
+                link.click();
+            });
+        }
+    </script>
+</body>
+</html>

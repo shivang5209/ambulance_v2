@@ -1,0 +1,396 @@
+import 'dart:async';
+import 'dart:convert';
+import 'package:firebase_auth/firebase_auth.dart' as firebase_auth;
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+
+
+import '../../../core/utils/logger.dart';
+import '../../../models/models.dart';
+import '../domain/auth_repository.dart';
+import '../presentation/bloc/auth_bloc.dart';
+
+class FirebaseAuthRepository implements AuthRepository {
+  final firebase_auth.FirebaseAuth _firebaseAuth;
+  final FirebaseFirestore _firestore;
+  final FlutterSecureStorage _secureStorage;
+  final Logger _logger;
+  
+  final StreamController<AuthState> _authStateController = 
+      StreamController<AuthState>.broadcast();
+
+  FirebaseAuthRepository({
+    firebase_auth.FirebaseAuth? firebaseAuth,
+    FirebaseFirestore? firestore,
+    FlutterSecureStorage? secureStorage,
+    Logger? logger,
+  }) : _firebaseAuth = firebaseAuth ?? firebase_auth.FirebaseAuth.instance,
+       _firestore = firestore ?? FirebaseFirestore.instance,
+       _secureStorage = secureStorage ?? const FlutterSecureStorage(),
+       _logger = logger ?? Logger() {
+    
+    // Listen to Firebase auth state changes
+    _firebaseAuth.authStateChanges().listen((firebase_auth.User? firebaseUser) {
+      _handleAuthStateChange(firebaseUser);
+    });
+  }
+
+  @override
+  Stream<AuthState> get authStateStream => _authStateController.stream;
+
+  @override
+  Future<AuthResult> login(String username, String password) async {
+    try {
+      _logger.logAuthEvent('Firebase login attempt', userId: username);
+      
+      // First, find the user by username in Firestore
+      final userQuery = await _firestore
+          .collection('users')
+          .where('username', isEqualTo: username)
+          .limit(1)
+          .get();
+
+      if (userQuery.docs.isEmpty) {
+        return AuthResult.failure('Invalid username or password');
+      }
+
+      final userDoc = userQuery.docs.first;
+      final userData = userDoc.data();
+      final email = userData['email'] as String;
+
+      // Sign in with email and password
+      final credential = await _firebaseAuth.signInWithEmailAndPassword(
+        email: email,
+        password: password,
+      );
+
+      if (credential.user != null) {
+        // Get user data from Firestore
+        final user = await _getUserFromFirestore(credential.user!.uid);
+        if (user != null) {
+          // Get Firebase ID token
+          final token = await credential.user!.getIdToken();
+          
+          // Store token securely
+          await _secureStorage.write(key: 'auth_token', value: token);
+          await _secureStorage.write(key: 'user_data', value: jsonEncode(user.toJson()));
+
+          // Update auth state
+          _updateAuthState(AuthState(
+            isAuthenticated: true,
+            currentUser: user,
+            token: token,
+          ));
+
+          _logger.logAuthEvent('Firebase login successful', userId: user.id);
+
+          return AuthResult.success(
+            user: user,
+            token: token,
+          );
+        }
+      }
+
+      return AuthResult.failure('Login failed');
+    } on firebase_auth.FirebaseAuthException catch (e) {
+      _logger.error('Firebase login failed', error: e);
+      return AuthResult.failure(_getFirebaseErrorMessage(e));
+    } catch (e) {
+      _logger.error('Unexpected login error', error: e);
+      return AuthResult.failure('An unexpected error occurred');
+    }
+  }
+
+  @override
+  Future<void> logout() async {
+    try {
+      _logger.logAuthEvent('Firebase logout attempt');
+
+      await _firebaseAuth.signOut();
+      await _clearStoredData();
+
+      _updateAuthState(const AuthState());
+      _logger.logAuthEvent('Firebase logout successful');
+    } catch (e) {
+      _logger.error('Firebase logout error', error: e);
+      // Still clear local data even if there's an error
+      await _clearStoredData();
+      _updateAuthState(const AuthState());
+    }
+  }
+
+  @override
+  Future<bool> refreshToken() async {
+    try {
+      final currentUser = _firebaseAuth.currentUser;
+      if (currentUser == null) return false;
+
+      _logger.logAuthEvent('Firebase token refresh attempt');
+
+      // Force refresh the token
+      final newToken = await currentUser.getIdToken(true);
+      
+      // Store new token
+      await _secureStorage.write(key: 'auth_token', value: newToken);
+
+      // Update auth state with new token
+      final user = await getCurrentUser();
+      if (user != null) {
+        _updateAuthState(AuthState(
+          isAuthenticated: true,
+          currentUser: user,
+          token: newToken,
+        ));
+      }
+
+      _logger.logAuthEvent('Firebase token refresh successful');
+      return true;
+    } catch (e) {
+      _logger.error('Firebase token refresh failed', error: e);
+      return false;
+    }
+  }
+
+  @override
+  Future<User?> getCurrentUser() async {
+    try {
+      final firebaseUser = _firebaseAuth.currentUser;
+      if (firebaseUser == null) return null;
+
+      return await _getUserFromFirestore(firebaseUser.uid);
+    } catch (e) {
+      _logger.error('Failed to get current user', error: e);
+      return null;
+    }
+  }
+
+  @override
+  Future<bool> isAuthenticated() async {
+    try {
+      final firebaseUser = _firebaseAuth.currentUser;
+      return firebaseUser != null;
+    } catch (e) {
+      _logger.error('Authentication check failed', error: e);
+      return false;
+    }
+  }
+
+  @override
+  Future<String?> getToken() async {
+    try {
+      final firebaseUser = _firebaseAuth.currentUser;
+      if (firebaseUser == null) return null;
+
+      return await firebaseUser.getIdToken();
+    } catch (e) {
+      _logger.error('Failed to get token', error: e);
+      return null;
+    }
+  }
+
+  @override
+  Future<AuthResult> autoLogin() async {
+    try {
+      _logger.logAuthEvent('Firebase auto-login attempt');
+
+      final firebaseUser = _firebaseAuth.currentUser;
+      if (firebaseUser == null) {
+        return AuthResult.failure('No authenticated user found');
+      }
+
+      final user = await _getUserFromFirestore(firebaseUser.uid);
+      if (user == null) {
+        return AuthResult.failure('User data not found');
+      }
+
+      final token = await firebaseUser.getIdToken();
+
+      // Store token and user data
+      await _secureStorage.write(key: 'auth_token', value: token);
+      await _secureStorage.write(key: 'user_data', value: jsonEncode(user.toJson()));
+
+      // Update auth state
+      _updateAuthState(AuthState(
+        isAuthenticated: true,
+        currentUser: user,
+        token: token,
+      ));
+
+      _logger.logAuthEvent('Firebase auto-login successful', userId: user.id);
+
+      return AuthResult.success(
+        user: user,
+        token: token,
+      );
+    } catch (e) {
+      _logger.error('Firebase auto-login failed', error: e);
+      return AuthResult.failure('Auto-login failed');
+    }
+  }
+
+  // Helper method to create demo users in Firestore
+  Future<void> createDemoUsers() async {
+    try {
+      final demoUsers = [
+        {
+          'username': 'driver1',
+          'email': 'driver1@ambulance.com',
+          'firstName': 'John',
+          'lastName': 'Driver',
+          'role': 'driver',
+          'hospitalId': 'hospital_1',
+          'preferences': {},
+          'isActive': true,
+          'createdAt': Timestamp.now(),
+          'updatedAt': Timestamp.now(),
+        },
+        {
+          'username': 'dispatcher1',
+          'email': 'dispatcher1@ambulance.com',
+          'firstName': 'Jane',
+          'lastName': 'Dispatcher',
+          'role': 'dispatcher',
+          'preferences': {},
+          'isActive': true,
+          'createdAt': Timestamp.now(),
+          'updatedAt': Timestamp.now(),
+        },
+        {
+          'username': 'hospital1',
+          'email': 'hospital1@ambulance.com',
+          'firstName': 'Dr. Sarah',
+          'lastName': 'Hospital',
+          'role': 'hospital_staff',
+          'hospitalId': 'hospital_1',
+          'preferences': {},
+          'isActive': true,
+          'createdAt': Timestamp.now(),
+          'updatedAt': Timestamp.now(),
+        },
+        {
+          'username': 'admin',
+          'email': 'admin@ambulance.com',
+          'firstName': 'Admin',
+          'lastName': 'User',
+          'role': 'admin',
+          'preferences': {},
+          'isActive': true,
+          'createdAt': Timestamp.now(),
+          'updatedAt': Timestamp.now(),
+        },
+        {
+          'username': 'citizen1',
+          'email': 'citizen1@ambulance.com',
+          'firstName': 'Mike',
+          'lastName': 'Citizen',
+          'role': 'citizen',
+          'preferences': {},
+          'isActive': true,
+          'createdAt': Timestamp.now(),
+          'updatedAt': Timestamp.now(),
+        },
+      ];
+
+      for (final userData in demoUsers) {
+        // Create Firebase Auth user
+        try {
+          final userCredential = await _firebaseAuth.createUserWithEmailAndPassword(
+            email: userData['email'] as String,
+            password: 'password123',
+          );
+
+          if (userCredential.user != null) {
+            // Add user data to Firestore with Firebase UID
+            await _firestore
+                .collection('users')
+                .doc(userCredential.user!.uid)
+                .set({
+              ...userData,
+              'id': userCredential.user!.uid,
+            });
+
+            _logger.info('Created demo user: ${userData['username']}');
+          }
+        } on firebase_auth.FirebaseAuthException catch (e) {
+          if (e.code == 'email-already-in-use') {
+            _logger.info('Demo user already exists: ${userData['username']}');
+          } else {
+            _logger.error('Failed to create demo user: ${userData['username']}', error: e);
+          }
+        }
+      }
+    } catch (e) {
+      _logger.error('Failed to create demo users', error: e);
+    }
+  }
+
+  Future<User?> _getUserFromFirestore(String uid) async {
+    try {
+      final doc = await _firestore.collection('users').doc(uid).get();
+      if (doc.exists) {
+        final data = doc.data()!;
+        
+        // Convert Firestore Timestamp to DateTime
+        if (data['createdAt'] is Timestamp) {
+          data['createdAt'] = (data['createdAt'] as Timestamp).toDate().toIso8601String();
+        }
+        if (data['updatedAt'] is Timestamp) {
+          data['updatedAt'] = (data['updatedAt'] as Timestamp).toDate().toIso8601String();
+        }
+        
+        return User.fromJson(data);
+      }
+      return null;
+    } catch (e) {
+      _logger.error('Failed to get user from Firestore', error: e);
+      return null;
+    }
+  }
+
+  void _handleAuthStateChange(firebase_auth.User? firebaseUser) async {
+    if (firebaseUser != null) {
+      final user = await _getUserFromFirestore(firebaseUser.uid);
+      final token = await firebaseUser.getIdToken();
+      
+      if (user != null) {
+        _updateAuthState(AuthState(
+          isAuthenticated: true,
+          currentUser: user,
+          token: token,
+        ));
+      }
+    } else {
+      _updateAuthState(const AuthState());
+    }
+  }
+
+  String _getFirebaseErrorMessage(firebase_auth.FirebaseAuthException e) {
+    switch (e.code) {
+      case 'user-not-found':
+      case 'wrong-password':
+      case 'invalid-credential':
+        return 'Invalid username or password';
+      case 'user-disabled':
+        return 'This account has been disabled';
+      case 'too-many-requests':
+        return 'Too many failed attempts. Please try again later';
+      case 'network-request-failed':
+        return 'Network error. Please check your connection';
+      default:
+        return 'Authentication failed: ${e.message}';
+    }
+  }
+
+  Future<void> _clearStoredData() async {
+    await _secureStorage.delete(key: 'auth_token');
+    await _secureStorage.delete(key: 'user_data');
+  }
+
+  void _updateAuthState(AuthState state) {
+    _authStateController.add(state);
+  }
+
+  void dispose() {
+    _authStateController.close();
+  }
+}

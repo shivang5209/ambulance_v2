@@ -1,0 +1,5 @@
+package com.rapidaid.ambulance_v2
+
+import io.flutter.embedding.android.FlutterActivity
+
+class MainActivity : FlutterActivity()

@@ -1,0 +1,269 @@
+import 'dart:async';
+import 'dart:convert';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:jwt_decoder/jwt_decoder.dart';
+
+import '../../../core/network/dio_client.dart';
+import '../../../core/constants/api_constants.dart';
+import '../../../core/errors/exceptions.dart';
+import '../../../core/utils/logger.dart';
+import '../../../models/models.dart';
+import '../domain/auth_repository.dart';
+import '../presentation/bloc/auth_bloc.dart';
+
+class AuthRepositoryImpl implements AuthRepository {
+  final DioClient _dioClient;
+  final FlutterSecureStorage _secureStorage;
+  final Logger _logger;
+  
+  final StreamController<AuthState> _authStateController = 
+      StreamController<AuthState>.broadcast();
+
+  AuthRepositoryImpl({
+    required DioClient dioClient,
+    FlutterSecureStorage? secureStorage,
+    Logger? logger,
+  }) : _dioClient = dioClient,
+       _secureStorage = secureStorage ?? const FlutterSecureStorage(),
+       _logger = logger ?? Logger();
+
+  @override
+  Stream<AuthState> get authStateStream => _authStateController.stream;
+
+  @override
+  Future<AuthResult> login(String username, String password) async {
+    try {
+      _logger.logAuthEvent('Login attempt', userId: username);
+      
+      final response = await _dioClient.post(
+        ApiConstants.loginEndpoint,
+        data: {
+          'username': username,
+          'password': password,
+        },
+      );
+
+      if (response.statusCode == 200) {
+        final data = response.data;
+        final token = data['access'] as String;
+        final refreshToken = data['refresh'] as String;
+        final userData = data['user'] as Map<String, dynamic>;
+
+        // Parse token expiry
+        final decodedToken = JwtDecoder.decode(token);
+        final tokenExpiry = DateTime.fromMillisecondsSinceEpoch(
+          decodedToken['exp'] * 1000,
+        );
+
+        // Create user object
+        final user = User.fromJson(userData);
+
+        // Store tokens securely
+        await _secureStorage.write(key: 'auth_token', value: token);
+        await _secureStorage.write(key: 'refresh_token', value: refreshToken);
+        await _secureStorage.write(key: 'user_data', value: jsonEncode(userData));
+
+        // Update auth state
+        _updateAuthState(AuthState(
+          isAuthenticated: true,
+          currentUser: user,
+          token: token,
+          tokenExpiry: tokenExpiry,
+        ));
+
+        _logger.logAuthEvent('Login successful', userId: user.id);
+
+        return AuthResult.success(
+          user: user,
+          token: token,
+          refreshToken: refreshToken,
+          tokenExpiry: tokenExpiry,
+        );
+      }
+
+      return AuthResult.failure('Login failed');
+    } on AppException catch (e) {
+      _logger.error('Login failed', error: e);
+      return AuthResult.failure(e.message);
+    } catch (e) {
+      _logger.error('Unexpected login error', error: e);
+      return AuthResult.failure('An unexpected error occurred');
+    }
+  }
+
+  @override
+  Future<void> logout() async {
+    try {
+      _logger.logAuthEvent('Logout attempt');
+
+      // Call logout endpoint if token exists
+      final token = await _secureStorage.read(key: 'auth_token');
+      if (token != null) {
+        try {
+          await _dioClient.post(ApiConstants.logoutEndpoint);
+        } catch (e) {
+          // Ignore logout endpoint errors, still clear local data
+          _logger.warning('Logout endpoint failed', error: e);
+        }
+      }
+
+      // Clear stored data
+      await _clearStoredData();
+
+      // Update auth state
+      _updateAuthState(const AuthState());
+
+      _logger.logAuthEvent('Logout successful');
+    } catch (e) {
+      _logger.error('Logout error', error: e);
+      // Still clear local data even if there's an error
+      await _clearStoredData();
+      _updateAuthState(const AuthState());
+    }
+  }
+
+  @override
+  Future<bool> refreshToken() async {
+    try {
+      final refreshToken = await _secureStorage.read(key: 'refresh_token');
+      if (refreshToken == null) {
+        return false;
+      }
+
+      _logger.logAuthEvent('Token refresh attempt');
+
+      final response = await _dioClient.post(
+        ApiConstants.refreshTokenEndpoint,
+        data: {'refresh': refreshToken},
+      );
+
+      if (response.statusCode == 200) {
+        final newToken = response.data['access'] as String;
+        
+        // Parse new token expiry
+        final decodedToken = JwtDecoder.decode(newToken);
+        final tokenExpiry = DateTime.fromMillisecondsSinceEpoch(
+          decodedToken['exp'] * 1000,
+        );
+
+        // Store new token
+        await _secureStorage.write(key: 'auth_token', value: newToken);
+
+        // Update auth state with new token
+        final currentUser = await getCurrentUser();
+        _updateAuthState(AuthState(
+          isAuthenticated: true,
+          currentUser: currentUser,
+          token: newToken,
+          tokenExpiry: tokenExpiry,
+        ));
+
+        _logger.logAuthEvent('Token refresh successful');
+        return true;
+      }
+
+      return false;
+    } catch (e) {
+      _logger.error('Token refresh failed', error: e);
+      return false;
+    }
+  }
+
+  @override
+  Future<User?> getCurrentUser() async {
+    try {
+      final userDataString = await _secureStorage.read(key: 'user_data');
+      if (userDataString != null) {
+        final userData = jsonDecode(userDataString) as Map<String, dynamic>;
+        return User.fromJson(userData);
+      }
+      return null;
+    } catch (e) {
+      _logger.error('Failed to get current user', error: e);
+      return null;
+    }
+  }
+
+  @override
+  Future<bool> isAuthenticated() async {
+    try {
+      final token = await _secureStorage.read(key: 'auth_token');
+      if (token == null) return false;
+
+      // Check if token is expired
+      if (JwtDecoder.isExpired(token)) {
+        // Try to refresh token
+        final refreshed = await refreshToken();
+        return refreshed;
+      }
+
+      return true;
+    } catch (e) {
+      _logger.error('Authentication check failed', error: e);
+      return false;
+    }
+  }
+
+  @override
+  Future<String?> getToken() async {
+    return await _secureStorage.read(key: 'auth_token');
+  }
+
+  @override
+  Future<AuthResult> autoLogin() async {
+    try {
+      _logger.logAuthEvent('Auto-login attempt');
+
+      final isAuth = await isAuthenticated();
+      if (!isAuth) {
+        return AuthResult.failure('No valid authentication found');
+      }
+
+      final user = await getCurrentUser();
+      final token = await getToken();
+
+      if (user != null && token != null) {
+        // Parse token expiry
+        final decodedToken = JwtDecoder.decode(token);
+        final tokenExpiry = DateTime.fromMillisecondsSinceEpoch(
+          decodedToken['exp'] * 1000,
+        );
+
+        // Update auth state
+        _updateAuthState(AuthState(
+          isAuthenticated: true,
+          currentUser: user,
+          token: token,
+          tokenExpiry: tokenExpiry,
+        ));
+
+        _logger.logAuthEvent('Auto-login successful', userId: user.id);
+
+        return AuthResult.success(
+          user: user,
+          token: token,
+          tokenExpiry: tokenExpiry,
+        );
+      }
+
+      return AuthResult.failure('Invalid stored authentication data');
+    } catch (e) {
+      _logger.error('Auto-login failed', error: e);
+      return AuthResult.failure('Auto-login failed');
+    }
+  }
+
+  Future<void> _clearStoredData() async {
+    await _secureStorage.delete(key: 'auth_token');
+    await _secureStorage.delete(key: 'refresh_token');
+    await _secureStorage.delete(key: 'user_data');
+  }
+
+  void _updateAuthState(AuthState state) {
+    _authStateController.add(state);
+  }
+
+  void dispose() {
+    _authStateController.close();
+  }
+}
