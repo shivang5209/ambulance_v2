@@ -93,6 +93,8 @@ class IoTDataOrchestrator {
 
   /// Stream of diagnostic snapshots for a monitoring UI.
   Stream<OrchestratorStatus> get statusStream => _statusController.stream;
+  HotspotService get hotspotService => _hotspotService;
+  LocationEnrichmentService get enrichmentService => _enrichmentService;
 
   // Keep a small rolling window for crash-event context.
   final List<VehicleParameters> _recentHistory = [];

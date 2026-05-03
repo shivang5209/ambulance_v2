@@ -3,13 +3,13 @@ import 'package:google_fonts/google_fonts.dart';
 import '../config/app_theme.dart';
 import 'user_type_selection_screen.dart';
 
-import 'package:stable_ambulance_app/screens/register_screen.dart';
+import 'package:ambulance_v2/screens/register_screen.dart';
 
 import 'package:provider/provider.dart';
-import 'package:stable_ambulance_app/providers/auth_provider.dart';
-import 'package:stable_ambulance_app/screens/role_home_shell.dart';
-import 'package:stable_ambulance_app/screens/role_selection_screen.dart';
-import 'package:stable_ambulance_app/widgets/max_width_container.dart';
+import 'package:ambulance_v2/providers/auth_provider.dart';
+import 'package:ambulance_v2/screens/role_home_shell.dart';
+import 'package:ambulance_v2/screens/role_selection_screen.dart';
+import 'package:ambulance_v2/widgets/max_width_container.dart';
 
 /// Initial Login Screen - First screen users see
 /// Material 3 design with glassmorphic effects

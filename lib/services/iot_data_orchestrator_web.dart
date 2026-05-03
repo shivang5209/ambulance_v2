@@ -1,9 +1,23 @@
 // Stub file for web platform - IoT orchestrator is not available on web
 // This prevents firebase_database package from being loaded on web builds
 
+import 'hotspot_service.dart';
+import 'location_enrichment_service.dart';
+
 class IoTDataOrchestrator {
   // Stub constructor that does nothing
-  IoTDataOrchestrator({required dynamic esp32Service});
+  IoTDataOrchestrator({
+    required dynamic esp32Service,
+    dynamic mlDetector,
+    HotspotService? hotspotService,
+    LocationEnrichmentService? enrichmentService,
+  })  : _hotspotService = hotspotService ?? HotspotService(),
+        _enrichmentService = enrichmentService ?? LocationEnrichmentService();
+
+  final HotspotService _hotspotService;
+  final LocationEnrichmentService _enrichmentService;
+  HotspotService get hotspotService => _hotspotService;
+  LocationEnrichmentService get enrichmentService => _enrichmentService;
   
   void initialize() {
     // No-op on web

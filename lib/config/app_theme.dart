@@ -11,6 +11,6 @@
 ///
 /// New code should import from lib/theme/ directly.
 
-export 'package:stable_ambulance_app/theme/app_theme.dart';
-export 'package:stable_ambulance_app/theme/app_colors.dart';
-export 'package:stable_ambulance_app/theme/app_typography.dart';
+export 'package:ambulance_v2/theme/app_theme.dart';
+export 'package:ambulance_v2/theme/app_colors.dart';
+export 'package:ambulance_v2/theme/app_typography.dart';

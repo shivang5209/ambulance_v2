@@ -4,13 +4,8 @@ import 'package:flutter/material.dart';
 
 import '../models/accident_prediction.dart';
 import '../services/training_data_service.dart';
+import '../theme/app_colors.dart';
 
-/// Post-alert dialog shown to the driver when the ML model detects an accident.
-///
-/// The driver has 30 seconds to confirm or dismiss. If they do nothing,
-/// the alert auto-fires (assumes real accident — driver may be incapacitated).
-///
-/// Both actions write a label to [TrainingDataService] for model retraining.
 class AccidentConfirmationDialog extends StatefulWidget {
   final String eventId;
   final AccidentPrediction prediction;
@@ -33,60 +28,44 @@ class AccidentConfirmationDialog extends StatefulWidget {
 }
 
 class _AccidentConfirmationDialogState
-    extends State<AccidentConfirmationDialog>
-    with SingleTickerProviderStateMixin {
-  static const _countdownSeconds = 30;
+    extends State<AccidentConfirmationDialog> {
+  static const int _countdownSeconds = 30;
+
   int _remaining = _countdownSeconds;
   Timer? _timer;
-  late AnimationController _pulseController;
 
   @override
   void initState() {
     super.initState();
-    _pulseController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 800),
-    )..repeat(reverse: true);
-
     _timer = Timer.periodic(const Duration(seconds: 1), (_) {
       if (!mounted) return;
       setState(() => _remaining--);
-      if (_remaining <= 0) _autoConfirm();
+      if (_remaining <= 0) {
+        _confirmAccident(source: 'auto');
+      }
     });
   }
 
   @override
   void dispose() {
     _timer?.cancel();
-    _pulseController.dispose();
     super.dispose();
   }
 
-  void _autoConfirm() {
+  Future<void> _confirmAccident({required String source}) async {
     _timer?.cancel();
-    widget.trainingService.saveLabel(
+    await widget.trainingService.saveLabel(
       eventId: widget.eventId,
       trueLabel: 'accident',
-      labelSource: 'auto',
+      labelSource: source,
     );
     widget.onConfirm();
     if (mounted) Navigator.of(context).pop();
   }
 
-  void _handleConfirm() {
+  Future<void> _dismissFalseAlarm() async {
     _timer?.cancel();
-    widget.trainingService.saveLabel(
-      eventId: widget.eventId,
-      trueLabel: 'accident',
-      labelSource: 'driver',
-    );
-    widget.onConfirm();
-    if (mounted) Navigator.of(context).pop();
-  }
-
-  void _handleDismiss() {
-    _timer?.cancel();
-    widget.trainingService.saveLabel(
+    await widget.trainingService.saveLabel(
       eventId: widget.eventId,
       trueLabel: 'false_positive',
       labelSource: 'driver',
@@ -99,109 +78,126 @@ class _AccidentConfirmationDialogState
   Widget build(BuildContext context) {
     final confidencePct =
         (widget.prediction.accidentProbability * 100).toStringAsFixed(1);
-    final severity = widget.prediction.severityClass;
-    final type = widget.prediction.accidentType;
+    final severityColor = _severityColor(widget.prediction.severityClass);
     final progress = _remaining / _countdownSeconds;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
 
-    final severityColor = _severityColor(severity);
-
-    return WillPopScope(
-      onWillPop: () async => false, // prevent back-button dismissal
+    return PopScope(
+      canPop: false,
       child: Dialog(
-        backgroundColor: Colors.transparent,
+        insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
         child: Container(
-          decoration: BoxDecoration(
-            color: const Color(0xFF1A1A2E),
-            borderRadius: BorderRadius.circular(24),
-            border: Border.all(color: severityColor.withOpacity(0.6), width: 2),
-            boxShadow: [
-              BoxShadow(
-                color: severityColor.withOpacity(0.3),
-                blurRadius: 24,
-                spreadRadius: 4,
-              ),
-            ],
-          ),
           padding: const EdgeInsets.all(24),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(28),
+            gradient: LinearGradient(
+              colors: [
+                Theme.of(context).cardColor,
+                isDark ? AppColors.darkSurfaceElevated : AppColors.lightSurface,
+              ],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+            border: Border.all(color: severityColor.withValues(alpha: 0.45)),
+          ),
           child: Column(
             mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // ── Pulsing alert icon ───────────────────────────────
-              AnimatedBuilder(
-                animation: _pulseController,
-                builder: (_, __) => Container(
-                  width: 72,
-                  height: 72,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: severityColor
-                        .withOpacity(0.15 + _pulseController.value * 0.25),
-                    border: Border.all(color: severityColor, width: 2),
-                  ),
-                  child: Icon(Icons.warning_amber_rounded,
-                      color: severityColor, size: 40),
-                ),
-              ),
-              const SizedBox(height: 16),
-
-              // ── Title ────────────────────────────────────────────
-              Text(
-                '⚠️ Accident Detected',
-                style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                      color: Colors.white,
-                      fontWeight: FontWeight.bold,
-                      fontSize: 20,
+              Row(
+                children: [
+                  Container(
+                    width: 60,
+                    height: 60,
+                    decoration: BoxDecoration(
+                      color: severityColor.withValues(alpha: 0.14),
+                      borderRadius: BorderRadius.circular(18),
                     ),
+                    child: Icon(
+                      Icons.emergency_rounded,
+                      color: severityColor,
+                      size: 30,
+                    ),
+                  ),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Possible accident detected',
+                          style: Theme.of(context)
+                              .textTheme
+                              .headlineSmall
+                              ?.copyWith(fontWeight: FontWeight.w700),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          'Confidence $confidencePct% · ${widget.prediction.severityClass}',
+                          style: Theme.of(context)
+                              .textTheme
+                              .bodyMedium
+                              ?.copyWith(color: severityColor),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 22),
+              Text(
+                'Confirm the event so the app can escalate, or dismiss it as a false alarm. If no action is taken, the system will auto-confirm after the countdown.',
+                style: Theme.of(context).textTheme.bodyMedium,
+              ),
+              const SizedBox(height: 18),
+              _DialogInfoRow(
+                label: 'Predicted type',
+                value: _titleCase(widget.prediction.accidentType),
+              ),
+              _DialogInfoRow(
+                label: 'Near-miss score',
+                value:
+                    '${(widget.prediction.nearMissProbability * 100).toStringAsFixed(1)}%',
+              ),
+              _DialogInfoRow(
+                label: 'Normal score',
+                value:
+                    '${(widget.prediction.normalProbability * 100).toStringAsFixed(1)}%',
+              ),
+              const SizedBox(height: 18),
+              ClipRRect(
+                borderRadius: BorderRadius.circular(999),
+                child: LinearProgressIndicator(
+                  value: progress,
+                  minHeight: 10,
+                  backgroundColor: severityColor.withValues(alpha: 0.12),
+                  valueColor: AlwaysStoppedAnimation<Color>(severityColor),
+                ),
               ),
               const SizedBox(height: 8),
               Text(
-                'ML Confidence: $confidencePct%',
-                style: TextStyle(color: severityColor, fontSize: 15),
+                'Auto-confirm in $_remaining seconds',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    ),
               ),
-              const SizedBox(height: 4),
-              Text(
-                'Type: ${type.toUpperCase()}  •  Severity: ${severity.toUpperCase()}',
-                style: const TextStyle(color: Colors.white60, fontSize: 13),
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 20),
-
-              // ── Countdown bar ────────────────────────────────────
-              ClipRRect(
-                borderRadius: BorderRadius.circular(8),
-                child: LinearProgressIndicator(
-                  value: progress,
-                  minHeight: 8,
-                  backgroundColor: Colors.white12,
-                  valueColor: AlwaysStoppedAnimation(severityColor),
-                ),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                'Auto-sending in $_remaining s',
-                style:
-                    const TextStyle(color: Colors.white54, fontSize: 12),
-              ),
-              const SizedBox(height: 24),
-
-              // ── Action buttons ───────────────────────────────────
+              const SizedBox(height: 22),
               Row(
                 children: [
                   Expanded(
-                    child: _ActionButton(
-                      label: '❌  False Alarm',
-                      color: Colors.white24,
-                      textColor: Colors.white70,
-                      onTap: _handleDismiss,
+                    child: OutlinedButton(
+                      onPressed: _dismissFalseAlarm,
+                      child: const Text('False alarm'),
                     ),
                   ),
                   const SizedBox(width: 12),
                   Expanded(
-                    child: _ActionButton(
-                      label: '✅  Real Accident',
-                      color: severityColor,
-                      textColor: Colors.white,
-                      onTap: _handleConfirm,
+                    child: ElevatedButton(
+                      onPressed: () => _confirmAccident(source: 'driver'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: severityColor,
+                      ),
+                      child: const Text('Confirm accident'),
                     ),
                   ),
                 ],
@@ -215,47 +211,59 @@ class _AccidentConfirmationDialogState
 
   Color _severityColor(String severity) {
     switch (severity) {
-      case 'critical': return const Color(0xFFDC2626);
-      case 'severe':   return const Color(0xFFEF4444);
-      case 'moderate': return const Color(0xFFF97316);
-      default:         return const Color(0xFFF59E0B);
+      case 'critical':
+      case 'severe':
+        return AppColors.error;
+      case 'moderate':
+        return AppColors.accent;
+      case 'minor':
+        return AppColors.warning;
+      default:
+        return AppColors.primary;
     }
+  }
+
+  String _titleCase(String input) {
+    if (input.isEmpty) return 'Unknown';
+    final words = input.replaceAll('_', ' ').split(' ');
+    return words
+        .map((word) => word.isEmpty
+            ? word
+            : '${word[0].toUpperCase()}${word.substring(1).toLowerCase()}')
+        .join(' ');
   }
 }
 
-class _ActionButton extends StatelessWidget {
+class _DialogInfoRow extends StatelessWidget {
   final String label;
-  final Color color;
-  final Color textColor;
-  final VoidCallback onTap;
+  final String value;
 
-  const _ActionButton({
+  const _DialogInfoRow({
     required this.label,
-    required this.color,
-    required this.textColor,
-    required this.onTap,
+    required this.value,
   });
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 150),
-        padding: const EdgeInsets.symmetric(vertical: 14),
-        decoration: BoxDecoration(
-          color: color,
-          borderRadius: BorderRadius.circular(14),
-        ),
-        alignment: Alignment.center,
-        child: Text(
-          label,
-          style: TextStyle(
-            color: textColor,
-            fontWeight: FontWeight.w600,
-            fontSize: 14,
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              label,
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
+            ),
           ),
-        ),
+          Text(
+            value,
+            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  fontWeight: FontWeight.w700,
+                ),
+          ),
+        ],
       ),
     );
   }

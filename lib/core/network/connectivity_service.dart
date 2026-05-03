@@ -8,6 +8,7 @@ class ConnectivityService {
 
   final Connectivity _connectivity = Connectivity();
   StreamController<bool>? _connectionController;
+  List<ConnectivityResult> _lastResults = const [ConnectivityResult.none];
 
   Stream<bool> get connectionStream {
     _connectionController ??= StreamController<bool>.broadcast();
@@ -16,35 +17,34 @@ class ConnectivityService {
 
   Future<void> initialize() async {
     // Check initial connectivity
-    final result = await _connectivity.checkConnectivity();
-    _updateConnectionStatus(result);
+    final results = await _connectivity.checkConnectivity();
+    _updateConnectionStatus(results);
 
     // Listen for connectivity changes
-    _connectivity.onConnectivityChanged.listen((ConnectivityResult result) {
-      _updateConnectionStatus(result);
+    _connectivity.onConnectivityChanged.listen((List<ConnectivityResult> results) {
+      _updateConnectionStatus(results);
     });
   }
 
-  void _updateConnectionStatus(ConnectivityResult result) {
-    final isConnected = result != ConnectivityResult.none;
+  void _updateConnectionStatus(List<ConnectivityResult> results) {
+    _lastResults = results;
+    final isConnected = results.any((result) => result != ConnectivityResult.none);
     _connectionController?.add(isConnected);
   }
 
   Future<bool> get isConnected async {
-    final result = await _connectivity.checkConnectivity();
-    return result != ConnectivityResult.none;
+    final results = await _connectivity.checkConnectivity();
+    return results.any((result) => result != ConnectivityResult.none);
   }
 
-  Future<ConnectivityResult> get connectivityResult async {
-    final result = await _connectivity.checkConnectivity();
-    return result;
+  Future<List<ConnectivityResult>> get connectivityResult async {
+    final results = await _connectivity.checkConnectivity();
+    return results;
   }
 
-  bool get hasWifi => _lastResult == ConnectivityResult.wifi;
-  bool get hasMobile => _lastResult == ConnectivityResult.mobile;
-  bool get hasEthernet => _lastResult == ConnectivityResult.ethernet;
-
-  final ConnectivityResult _lastResult = ConnectivityResult.none;
+  bool get hasWifi => _lastResults.contains(ConnectivityResult.wifi);
+  bool get hasMobile => _lastResults.contains(ConnectivityResult.mobile);
+  bool get hasEthernet => _lastResults.contains(ConnectivityResult.ethernet);
 
   void dispose() {
     _connectionController?.close();
