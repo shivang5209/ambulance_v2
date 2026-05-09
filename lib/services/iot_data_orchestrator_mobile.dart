@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:collection';
+import 'dart:math' as math;
 import 'package:uuid/uuid.dart';
 
 import '../core/constants/supabase_config.dart';
@@ -61,8 +62,7 @@ class IoTDataOrchestrator {
         _supabaseRepo = supabaseRepo ?? SupabaseRepository(),
         _mlDetector = mlDetector ?? MLAccidentDetector(),
         _trainingService = trainingService ?? TrainingDataService(),
-        _enrichmentService =
-            enrichmentService ?? LocationEnrichmentService(),
+        _enrichmentService = enrichmentService ?? LocationEnrichmentService(),
         _hotspotService = hotspotService ?? HotspotService();
 
   final ESP32Service _esp32Service;
@@ -86,6 +86,17 @@ class IoTDataOrchestrator {
   int _coldFlushes = 0;
   int _crashEvents = 0;
   bool _mlActive = false;
+  bool _roadCollectionActive = false;
+  String? _activeTripId;
+  DateTime? _activeTripStart;
+  VehicleParameters? _previousRoadSample;
+  VehicleParameters? _latestRoadSample;
+  int _roadSampleCount = 0;
+  double _roadDistanceKm = 0;
+  double _roadSpeedTotal = 0;
+  double _roadMaxSpeed = 0;
+  double _roadMaxGForce = 0;
+  int _roadCrashEventCount = 0;
   String? _lastError;
 
   final StreamController<OrchestratorStatus> _statusController =
@@ -95,6 +106,7 @@ class IoTDataOrchestrator {
   Stream<OrchestratorStatus> get statusStream => _statusController.stream;
   HotspotService get hotspotService => _hotspotService;
   LocationEnrichmentService get enrichmentService => _enrichmentService;
+  bool get roadCollectionActive => _roadCollectionActive;
 
   // Keep a small rolling window for crash-event context.
   final List<VehicleParameters> _recentHistory = [];
@@ -129,6 +141,63 @@ class IoTDataOrchestrator {
     _statusController.close();
   }
 
+  void startRoadDataCollection({
+    required String tripId,
+    DateTime? startTime,
+  }) {
+    _activeTripId = tripId;
+    _activeTripStart = startTime ?? DateTime.now();
+    _roadCollectionActive = true;
+    _previousRoadSample = null;
+    _latestRoadSample = null;
+    _roadSampleCount = 0;
+    _roadDistanceKm = 0;
+    _roadSpeedTotal = 0;
+    _roadMaxSpeed = 0;
+    _roadMaxGForce = 0;
+    _roadCrashEventCount = 0;
+    _emitStatus();
+  }
+
+  Future<void> stopRoadDataCollection({DateTime? endTime}) async {
+    if (!_roadCollectionActive) return;
+
+    _roadCollectionActive = false;
+    final tripId = _activeTripId;
+    final startTime = _activeTripStart;
+    final stoppedAt = endTime ?? DateTime.now();
+    final latest = _latestRoadSample;
+    final totalReadings = _roadSampleCount;
+    final avgSpeed = totalReadings == 0 ? 0.0 : _roadSpeedTotal / totalReadings;
+
+    await _flushColdPath();
+
+    if (tripId != null && startTime != null && latest != null) {
+      try {
+        await _supabaseRepo.writeTripSummary(
+          deviceId: latest.deviceId,
+          tripId: tripId,
+          startTime: startTime,
+          endTime: stoppedAt,
+          totalReadings: totalReadings,
+          distanceKm: _roadDistanceKm,
+          avgSpeed: avgSpeed,
+          maxSpeed: _roadMaxSpeed,
+          maxGForce: _roadMaxGForce,
+          crashEventCount: _roadCrashEventCount,
+        );
+      } catch (e) {
+        _lastError = 'Trip summary write error: $e';
+      }
+    }
+
+    _activeTripId = null;
+    _activeTripStart = null;
+    _previousRoadSample = null;
+    _latestRoadSample = null;
+    _emitStatus();
+  }
+
   // ── Core routing logic ───────────────────────────────────────────────
 
   void _onData(VehicleParameters params) {
@@ -154,15 +223,33 @@ class IoTDataOrchestrator {
     });
 
     // COLD PATH — enqueue (no I/O)
-    _supabaseRepo.enqueue(params);
+    if (_roadCollectionActive) {
+      _trackRoadSample(params);
+      _supabaseRepo.enqueue(params);
+    }
 
     _hotWrites++;
     _emitStatus();
 
     // Flush cold path early if batch threshold reached.
-    if (_supabaseRepo.pendingCount >= SupabaseConfig.batchSizeThreshold) {
+    if (_roadCollectionActive &&
+        _supabaseRepo.pendingCount >= SupabaseConfig.batchSizeThreshold) {
       _flushColdPath();
     }
+  }
+
+  void _trackRoadSample(VehicleParameters params) {
+    final previous = _previousRoadSample;
+    if (previous != null) {
+      _roadDistanceKm += _distanceKm(previous.location, params.location);
+    }
+
+    _previousRoadSample = params;
+    _latestRoadSample = params;
+    _roadSampleCount++;
+    _roadSpeedTotal += params.speed;
+    _roadMaxSpeed = math.max(_roadMaxSpeed, params.speed);
+    _roadMaxGForce = math.max(_roadMaxGForce, params.totalAcceleration);
   }
 
   Future<void> _runInference(VehicleParameters latest) async {
@@ -191,6 +278,7 @@ class IoTDataOrchestrator {
     }
 
     if (prediction.isAccident || prediction.isNearMiss) {
+      if (_roadCollectionActive) _roadCrashEventCount++;
       await _handleCrashEvent(latest, window, ctx, prediction);
     }
   }
@@ -222,16 +310,17 @@ class IoTDataOrchestrator {
       location: params.location,
     );
 
-    // Supabase crash event (cold)
-    try {
-      await _supabaseRepo.writeCrashEvent(
-        eventId: eventId,
-        params: params,
-        recentHistory: List.unmodifiable(_recentHistory),
-      );
-    } catch (e) {
-      _lastError = 'Supabase crash event error: $e';
-      _emitStatus();
+    if (_roadCollectionActive) {
+      try {
+        await _supabaseRepo.writeCrashEvent(
+          eventId: eventId,
+          params: params,
+          recentHistory: List.unmodifiable(_recentHistory),
+        );
+      } catch (e) {
+        _lastError = 'Supabase crash event error: $e';
+        _emitStatus();
+      }
     }
   }
 
@@ -257,4 +346,26 @@ class IoTDataOrchestrator {
       mlActive: _mlActive,
     ));
   }
+
+  double _distanceKm(GpsLocation a, GpsLocation b) {
+    if ((a.latitude == 0 && a.longitude == 0) ||
+        (b.latitude == 0 && b.longitude == 0)) {
+      return 0;
+    }
+
+    const earthRadiusKm = 6371.0;
+    final lat1 = _degToRad(a.latitude);
+    final lat2 = _degToRad(b.latitude);
+    final dLat = _degToRad(b.latitude - a.latitude);
+    final dLng = _degToRad(b.longitude - a.longitude);
+    final h = math.sin(dLat / 2) * math.sin(dLat / 2) +
+        math.cos(lat1) *
+            math.cos(lat2) *
+            math.sin(dLng / 2) *
+            math.sin(dLng / 2);
+
+    return earthRadiusKm * 2 * math.atan2(math.sqrt(h), math.sqrt(1 - h));
+  }
+
+  double _degToRad(double degrees) => degrees * math.pi / 180;
 }

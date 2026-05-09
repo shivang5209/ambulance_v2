@@ -18,15 +18,26 @@ class IoTDataOrchestrator {
   final LocationEnrichmentService _enrichmentService;
   HotspotService get hotspotService => _hotspotService;
   LocationEnrichmentService get enrichmentService => _enrichmentService;
-  
+
   void initialize() {
     // No-op on web
   }
-  
+
   void start() {
     // No-op on web
   }
-  
+
+  void startRoadDataCollection({
+    required String tripId,
+    DateTime? startTime,
+  }) {
+    // No-op on web
+  }
+
+  Future<void> stopRoadDataCollection({DateTime? endTime}) async {
+    // No-op on web
+  }
+
   void dispose() {
     // No-op on web
   }

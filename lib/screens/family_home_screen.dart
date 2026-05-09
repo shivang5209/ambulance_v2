@@ -23,14 +23,14 @@ class _FamilyHomeScreenState extends State<FamilyHomeScreen>
   StreamSubscription<Position>? _locationSubscription;
 
   // Driver data
-  final String _vehicleNumber = "ABC-1234";
+  final String _vehicleNumber = 'ABC-1234';
   double _currentLat = 0.0;
   double _currentLng = 0.0;
   bool _locationLoaded = false;
   double _currentSpeed = 45.2;
-  double _lastGForce = 0.98;
+  final double _lastGForce = 0.98;
   final bool _isDriverSafe = true;
-  String _lastUpdate = "Waiting for GPS...";
+  String _lastUpdate = 'Waiting for GPS...';
   
   // Alert history
   List<AlertData> _alerts = [];
@@ -52,7 +52,7 @@ class _FamilyHomeScreenState extends State<FamilyHomeScreen>
 
   Future<void> _initLocationStream() async {
     try {
-      bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      final bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
       if (!serviceEnabled) return;
 
       LocationPermission permission = await Geolocator.checkPermission();
@@ -60,7 +60,9 @@ class _FamilyHomeScreenState extends State<FamilyHomeScreen>
         permission = await Geolocator.requestPermission();
       }
       if (permission == LocationPermission.denied ||
-          permission == LocationPermission.deniedForever) return;
+          permission == LocationPermission.deniedForever) {
+        return;
+      }
 
       // Get an immediate fix first
       final position = await Geolocator.getCurrentPosition(

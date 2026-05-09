@@ -1,0 +1,8 @@
+flask
+adafruit-blinka
+adafruit-circuitpython-mpu6050
+adafruit-circuitpython-ssd1306
+adafruit-circuitpython-dht
+pillow
+gpiozero
+smbus2

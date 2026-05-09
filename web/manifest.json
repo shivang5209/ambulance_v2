@@ -1,6 +1,6 @@
 {
-    "name": "ambulance_v2",
-    "short_name": "ambulance_v2",
+    "name": "rapidAid V2",
+    "short_name": "rapidAid V2",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#0175C2",

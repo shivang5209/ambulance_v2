@@ -23,6 +23,9 @@ migrate_working_dir/
 # is commented out by default.
 #.vscode/
 
+# Local editor settings
+.vscode/
+
 # Flutter/Dart/Pub related
 **/doc/api/
 **/ios/Flutter/.last_build_id
@@ -43,3 +46,14 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# Local/generated assets that should not be part of the hardware review
+DATASET/
+raspberry_pi copy/
+training_data_initial.csv
+Doc/update-single_repo.json
+Doc/update_obsidian.json
+
+# Local vendored dependency override. If this fork is required for builds on
+# other machines, commit it instead and remove this ignore rule.
+third_party/

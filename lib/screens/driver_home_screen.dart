@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import '../config/app_theme.dart';
 import '../models/models.dart';
 import '../widgets/responsive_grid.dart';
+import 'ride_test_screen.dart';
 import 'role_selection_screen.dart';
 
 class DriverHomeScreen extends StatefulWidget {
@@ -16,12 +17,12 @@ class _DriverHomeScreenState extends State<DriverHomeScreen>
     with TickerProviderStateMixin {
   late AnimationController _pulseController;
   late AnimationController _rotationController;
-  
+
   // Mock sensor data
   VehicleParameters? _currentParameters;
   bool _isMonitoring = true;
   final String _deviceStatus = 'Connected';
-  
+
   @override
   void initState() {
     super.initState();
@@ -29,12 +30,12 @@ class _DriverHomeScreenState extends State<DriverHomeScreen>
       duration: const Duration(seconds: 2),
       vsync: this,
     )..repeat();
-    
+
     _rotationController = AnimationController(
       duration: const Duration(seconds: 10),
       vsync: this,
     )..repeat();
-    
+
     _generateMockData();
   }
 
@@ -65,7 +66,7 @@ class _DriverHomeScreenState extends State<DriverHomeScreen>
       orientation: random.nextDouble() * 360,
       impactForce: 0.8 + random.nextDouble() * 0.4, // Normal driving
     );
-    
+
     // Update every 2 seconds
     Future.delayed(const Duration(seconds: 2), () {
       if (mounted) {
@@ -84,6 +85,18 @@ class _DriverHomeScreenState extends State<DriverHomeScreen>
         title: const Text('Vehicle Monitor'),
         actions: [
           IconButton(
+            icon: const Icon(Icons.route),
+            tooltip: 'Ride Test',
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => const RideTestScreen(),
+                ),
+              );
+            },
+          ),
+          IconButton(
             icon: Icon(_isMonitoring ? Icons.pause : Icons.play_arrow),
             onPressed: () {
               setState(() {
@@ -96,7 +109,8 @@ class _DriverHomeScreenState extends State<DriverHomeScreen>
             onSelected: (value) {
               if (value == 'switch_role') {
                 Navigator.of(context).pushAndRemoveUntil(
-                  MaterialPageRoute(builder: (_) => const RoleSelectionScreen()),
+                  MaterialPageRoute(
+                      builder: (_) => const RoleSelectionScreen()),
                   (route) => false,
                 );
               }
@@ -123,19 +137,19 @@ class _DriverHomeScreenState extends State<DriverHomeScreen>
           children: [
             // Hero Monitoring Card
             _buildHeroMonitoringCard(),
-            
+
             const SizedBox(height: 24),
-            
+
             // Quick Stats Grid
             _buildQuickStatsGrid(),
-            
+
             const SizedBox(height: 24),
-            
+
             // Sensor Details
             _buildSensorDetails(),
-            
+
             const SizedBox(height: 24),
-            
+
             // Recent Activity
             _buildRecentActivity(),
           ],
@@ -162,7 +176,9 @@ class _DriverHomeScreenState extends State<DriverHomeScreen>
                 decoration: BoxDecoration(
                   borderRadius: BorderRadius.circular(24),
                   border: Border.all(
-                    color: (_isMonitoring ? AppTheme.normalOperation : AppTheme.accent)
+                    color: (_isMonitoring
+                            ? AppTheme.normalOperation
+                            : AppTheme.accent)
                         .withValues(alpha: 0.3 + 0.4 * _pulseController.value),
                     width: 2,
                   ),
@@ -170,7 +186,7 @@ class _DriverHomeScreenState extends State<DriverHomeScreen>
               );
             },
           ),
-          
+
           Padding(
             padding: const EdgeInsets.all(24),
             child: Column(
@@ -182,7 +198,8 @@ class _DriverHomeScreenState extends State<DriverHomeScreen>
                       width: 12,
                       height: 12,
                       decoration: BoxDecoration(
-                        color: _isMonitoring ? AppTheme.success : AppTheme.accent,
+                        color:
+                            _isMonitoring ? AppTheme.success : AppTheme.accent,
                         shape: BoxShape.circle,
                       ),
                     ),
@@ -190,53 +207,53 @@ class _DriverHomeScreenState extends State<DriverHomeScreen>
                     Text(
                       _deviceStatus,
                       style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                        color: Colors.white,
-                        fontWeight: FontWeight.w600,
-                      ),
+                            color: Colors.white,
+                            fontWeight: FontWeight.w600,
+                          ),
                     ),
                     const Spacer(),
                     Text(
                       'IOT Device',
                       style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                        color: Colors.white.withValues(alpha: 0.8),
-                      ),
+                            color: Colors.white.withValues(alpha: 0.8),
+                          ),
                     ),
                   ],
                 ),
-                
+
                 const SizedBox(height: 20),
-                
+
                 // Speed Display
                 Row(
                   children: [
                     Text(
                       _currentParameters?.speed.toStringAsFixed(0) ?? '--',
                       style: Theme.of(context).textTheme.displayLarge?.copyWith(
-                        color: Colors.white,
-                        fontWeight: FontWeight.bold,
-                      ),
+                            color: Colors.white,
+                            fontWeight: FontWeight.bold,
+                          ),
                     ),
                     const SizedBox(width: 8),
                     Text(
                       'km/h',
                       style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                        color: Colors.white.withValues(alpha: 0.8),
-                      ),
+                            color: Colors.white.withValues(alpha: 0.8),
+                          ),
                     ),
                   ],
                 ),
-                
+
                 const SizedBox(height: 8),
-                
+
                 Text(
                   'Current Speed',
                   style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    color: Colors.white.withValues(alpha: 0.9),
-                  ),
+                        color: Colors.white.withValues(alpha: 0.9),
+                      ),
                 ),
-                
+
                 const Spacer(),
-                
+
                 // Status Indicators
                 Row(
                   children: [
@@ -272,8 +289,8 @@ class _DriverHomeScreenState extends State<DriverHomeScreen>
         Text(
           label,
           style: Theme.of(context).textTheme.labelSmall?.copyWith(
-            color: Colors.white.withValues(alpha: 0.7),
-          ),
+                color: Colors.white.withValues(alpha: 0.7),
+              ),
         ),
         const SizedBox(height: 4),
         Row(
@@ -290,9 +307,9 @@ class _DriverHomeScreenState extends State<DriverHomeScreen>
             Text(
               value,
               style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                color: Colors.white,
-                fontWeight: FontWeight.w600,
-              ),
+                    color: Colors.white,
+                    fontWeight: FontWeight.w600,
+                  ),
             ),
           ],
         ),
@@ -336,7 +353,8 @@ class _DriverHomeScreenState extends State<DriverHomeScreen>
     );
   }
 
-  Widget _buildStatCard(String title, String value, IconData icon, Color color) {
+  Widget _buildStatCard(
+      String title, String value, IconData icon, Color color) {
     return Container(
       decoration: BoxDecoration(
         color: Theme.of(context).cardColor,
@@ -369,16 +387,19 @@ class _DriverHomeScreenState extends State<DriverHomeScreen>
           Text(
             value,
             style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-              fontWeight: FontWeight.bold,
-              color: color,
-            ),
+                  fontWeight: FontWeight.bold,
+                  color: color,
+                ),
           ),
           const SizedBox(height: 4),
           Text(
             title,
             style: Theme.of(context).textTheme.bodySmall?.copyWith(
-              color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.7),
-            ),
+                  color: Theme.of(context)
+                      .colorScheme
+                      .onSurface
+                      .withValues(alpha: 0.7),
+                ),
           ),
         ],
       ),
@@ -399,17 +420,23 @@ class _DriverHomeScreenState extends State<DriverHomeScreen>
           Text(
             'Sensor Details',
             style: Theme.of(context).textTheme.titleLarge?.copyWith(
-              fontWeight: FontWeight.w600,
-            ),
+                  fontWeight: FontWeight.w600,
+                ),
           ),
           const SizedBox(height: 16),
-          
           _buildSensorRow('Device ID', _currentParameters?.deviceId ?? '--'),
-          _buildSensorRow('Timestamp', _currentParameters?.timestamp.toString().substring(11, 19) ?? '--'),
-          _buildSensorRow('Latitude', '${_currentParameters?.location.latitude.toStringAsFixed(6) ?? '--'}°'),
-          _buildSensorRow('Longitude', '${_currentParameters?.location.longitude.toStringAsFixed(6) ?? '--'}°'),
-          _buildSensorRow('Altitude', '${_currentParameters?.location.altitude.toStringAsFixed(1) ?? '--'}m'),
-          _buildSensorRow('Total Acceleration', '${_currentParameters?.totalAcceleration.toStringAsFixed(2) ?? '--'}G'),
+          _buildSensorRow(
+              'Timestamp',
+              _currentParameters?.timestamp.toString().substring(11, 19) ??
+                  '--'),
+          _buildSensorRow('Latitude',
+              '${_currentParameters?.location.latitude.toStringAsFixed(6) ?? '--'}°'),
+          _buildSensorRow('Longitude',
+              '${_currentParameters?.location.longitude.toStringAsFixed(6) ?? '--'}°'),
+          _buildSensorRow('Altitude',
+              '${_currentParameters?.location.altitude.toStringAsFixed(1) ?? '--'}m'),
+          _buildSensorRow('Total Acceleration',
+              '${_currentParameters?.totalAcceleration.toStringAsFixed(2) ?? '--'}G'),
         ],
       ),
     );
@@ -425,8 +452,11 @@ class _DriverHomeScreenState extends State<DriverHomeScreen>
             child: Text(
               label,
               style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.7),
-              ),
+                    color: Theme.of(context)
+                        .colorScheme
+                        .onSurface
+                        .withValues(alpha: 0.7),
+                  ),
             ),
           ),
           Expanded(
@@ -434,9 +464,9 @@ class _DriverHomeScreenState extends State<DriverHomeScreen>
             child: Text(
               value,
               style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                fontWeight: FontWeight.w500,
-                fontFamily: 'monospace',
-              ),
+                    fontWeight: FontWeight.w500,
+                    fontFamily: 'monospace',
+                  ),
             ),
           ),
         ],
@@ -458,11 +488,10 @@ class _DriverHomeScreenState extends State<DriverHomeScreen>
           Text(
             'Recent Activity',
             style: Theme.of(context).textTheme.titleLarge?.copyWith(
-              fontWeight: FontWeight.w600,
-            ),
+                  fontWeight: FontWeight.w600,
+                ),
           ),
           const SizedBox(height: 16),
-          
           _buildActivityItem(
             'System Started',
             '2 hours ago',
@@ -486,7 +515,8 @@ class _DriverHomeScreenState extends State<DriverHomeScreen>
     );
   }
 
-  Widget _buildActivityItem(String title, String time, IconData icon, Color color) {
+  Widget _buildActivityItem(
+      String title, String time, IconData icon, Color color) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 8),
       child: Row(
@@ -512,14 +542,17 @@ class _DriverHomeScreenState extends State<DriverHomeScreen>
                 Text(
                   title,
                   style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    fontWeight: FontWeight.w500,
-                  ),
+                        fontWeight: FontWeight.w500,
+                      ),
                 ),
                 Text(
                   time,
                   style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6),
-                  ),
+                        color: Theme.of(context)
+                            .colorScheme
+                            .onSurface
+                            .withValues(alpha: 0.6),
+                      ),
                 ),
               ],
             ),

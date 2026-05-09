@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import '../models/models.dart';
@@ -9,15 +8,33 @@ import '../models/models.dart';
 /// Handles communication with ESP32 modules for sensor data
 class ESP32Service {
   static const String _defaultPort = '80';
+  static const List<String> _scanPorts = ['80', '5000'];
   static const Duration _connectionTimeout = Duration(seconds: 10);
+  static const Duration _scanTimeout = Duration(milliseconds: 1200);
   static const Duration _dataInterval = Duration(seconds: 1);
 
   final Map<String, ESP32Device> _connectedDevices = {};
+  final Map<String, String> _bearerTokens = {};
   final StreamController<VehicleParameters> _dataStreamController =
       StreamController<VehicleParameters>.broadcast();
 
   Timer? _dataTimer;
   bool _isScanning = false;
+  bool _isCollecting = false;
+
+  /// Register a bearer token for a device. All subsequent requests to that
+  /// device will include [Authorization: Bearer <token>].
+  void setDeviceToken(String deviceId, String token) {
+    _bearerTokens[deviceId] = token;
+  }
+
+  Map<String, String> _headers(String deviceId) {
+    final token = _bearerTokens[deviceId];
+    return {
+      'Content-Type': 'application/json',
+      if (token != null) 'Authorization': 'Bearer $token',
+    };
+  }
 
   /// Stream of real-time sensor data from all connected devices
   Stream<VehicleParameters> get dataStream => _dataStreamController.stream;
@@ -34,32 +51,40 @@ class ESP32Service {
     if (_isScanning) return [];
 
     _isScanning = true;
-    final List<ESP32Device> foundDevices = [];
-    final List<Future<void>> scanTasks = [];
+    try {
+      final List<ESP32Device> foundDevices = [];
+      final List<Future<void>> scanTasks = [];
 
-    for (int i = startRange; i <= endRange; i++) {
-      final ip = '$subnet.$i';
-      scanTasks.add(_scanSingleDevice(ip, foundDevices));
+      for (int i = startRange; i <= endRange; i++) {
+        final host = '$subnet.$i';
+        for (final port in _scanPorts) {
+          scanTasks.add(_scanSingleDevice(host, port, foundDevices));
+        }
+      }
+
+      await Future.wait(scanTasks);
+      return foundDevices;
+    } finally {
+      _isScanning = false;
     }
-
-    await Future.wait(scanTasks);
-    _isScanning = false;
-
-    return foundDevices;
   }
 
   Future<void> _scanSingleDevice(
-      String ip, List<ESP32Device> foundDevices) async {
+      String host, String port, List<ESP32Device> foundDevices) async {
     try {
+      final endpoint = _endpoint(host, port: port);
       final response = await http.get(
-        Uri.parse('http://$ip:$_defaultPort/info'),
+        Uri.parse('$endpoint/info'),
         headers: {'Content-Type': 'application/json'},
-      ).timeout(_connectionTimeout);
+      ).timeout(_scanTimeout);
 
       if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        final device = ESP32Device.fromJson(data, ip);
-        foundDevices.add(device);
+        final data = jsonDecode(response.body) as Map<String, dynamic>;
+        final device =
+            ESP32Device.fromJson(data, _addressForDevice(host, port));
+        if (!foundDevices.any((item) => item.id == device.id)) {
+          foundDevices.add(device);
+        }
       }
     } catch (e) {
       // Device not found or not responding
@@ -69,14 +94,18 @@ class ESP32Service {
   /// Connect to a specific ESP32 device
   Future<bool> connectToDevice(String deviceId, String ipAddress) async {
     try {
+      final endpoint = _endpoint(ipAddress);
+
       // Test connection
-      final response = await http.get(
-        Uri.parse('http://$ipAddress:$_defaultPort/status'),
-        headers: {'Content-Type': 'application/json'},
-      ).timeout(_connectionTimeout);
+      final response = await http
+          .get(
+            Uri.parse('$endpoint/status'),
+            headers: _headers(deviceId),
+          )
+          .timeout(_connectionTimeout);
 
       if (response.statusCode == 200) {
-        final statusData = jsonDecode(response.body);
+        final statusData = jsonDecode(response.body) as Map<String, dynamic>;
         final device = ESP32Device(
           id: deviceId,
           ipAddress: ipAddress,
@@ -84,19 +113,19 @@ class ESP32Service {
           isConnected: true,
           lastSeen: DateTime.now(),
           firmwareVersion: statusData['firmware'] ?? '1.0.0',
-          batteryLevel: statusData['battery'] ?? 100,
-          signalStrength: statusData['rssi'] ?? -50,
+          batteryLevel: _asInt(statusData['battery'], 100),
+          signalStrength: _asInt(statusData['rssi'], -50),
         );
 
         _connectedDevices[deviceId] = device;
 
         // Start data collection for this device
-        _startDataCollection(device);
+        _startDataCollection();
 
         return true;
       }
     } catch (e) {
-      print('Failed to connect to device $deviceId: $e');
+      debugPrint('Failed to connect to device $deviceId: $e');
     }
 
     return false;
@@ -107,16 +136,22 @@ class ESP32Service {
     final device = _connectedDevices[deviceId];
     if (device != null) {
       try {
-        // Send disconnect command to ESP32
-        await http.post(
-          Uri.parse('http://${device.ipAddress}:$_defaultPort/disconnect'),
-          headers: {'Content-Type': 'application/json'},
-        ).timeout(_connectionTimeout);
+        final endpoint = _endpoint(device.ipAddress);
+        await http
+            .post(
+              Uri.parse('$endpoint/disconnect'),
+              headers: _headers(deviceId),
+            )
+            .timeout(_connectionTimeout);
       } catch (e) {
-        print('Error disconnecting device $deviceId: $e');
+        debugPrint('Error disconnecting device $deviceId: $e');
       }
 
       _connectedDevices.remove(deviceId);
+      _bearerTokens.remove(deviceId);
+      if (_connectedDevices.isEmpty) {
+        stopDataCollection();
+      }
     }
   }
 
@@ -134,7 +169,7 @@ class ESP32Service {
     _dataTimer = null;
   }
 
-  void _startDataCollection(ESP32Device device) {
+  void _startDataCollection() {
     // Individual device data collection is handled by the main timer
     if (_dataTimer == null) {
       startDataCollection();
@@ -142,20 +177,29 @@ class ESP32Service {
   }
 
   Future<void> _collectDataFromAllDevices() async {
+    if (_isCollecting) return;
+    _isCollecting = true;
     final tasks =
         _connectedDevices.values.map((device) => _collectDeviceData(device));
-    await Future.wait(tasks);
+    try {
+      await Future.wait(tasks);
+    } finally {
+      _isCollecting = false;
+    }
   }
 
   Future<void> _collectDeviceData(ESP32Device device) async {
     try {
-      final response = await http.get(
-        Uri.parse('http://${device.ipAddress}:$_defaultPort/sensors'),
-        headers: {'Content-Type': 'application/json'},
-      ).timeout(const Duration(seconds: 5));
+      final endpoint = _endpoint(device.ipAddress);
+      final response = await http
+          .get(
+            Uri.parse('$endpoint/sensors'),
+            headers: _headers(device.id),
+          )
+          .timeout(const Duration(seconds: 5));
 
       if (response.statusCode == 200) {
-        final sensorData = jsonDecode(response.body);
+        final sensorData = jsonDecode(response.body) as Map<String, dynamic>;
         final vehicleParams = _parseVehicleParameters(device.id, sensorData);
 
         // Update device status
@@ -168,7 +212,7 @@ class ESP32Service {
     } catch (e) {
       // Mark device as disconnected if we can't reach it
       device.isConnected = false;
-      print('Failed to collect data from ${device.id}: $e');
+      debugPrint('Failed to collect data from ${device.id}: $e');
     }
   }
 
@@ -177,27 +221,27 @@ class ESP32Service {
     return VehicleParameters(
       deviceId: deviceId,
       timestamp: DateTime.now(),
-      accelerationX: (data['accel_x'] ?? 0.0).toDouble(),
-      accelerationY: (data['accel_y'] ?? 0.0).toDouble(),
-      accelerationZ: (data['accel_z'] ?? 9.8).toDouble(),
-      speed: (data['speed'] ?? 0.0).toDouble(),
+      accelerationX: _asDouble(data['accel_x'], 0),
+      accelerationY: _asDouble(data['accel_y'], 0),
+      accelerationZ: _asDouble(data['accel_z'], 1),
+      speed: _asDouble(data['speed'], 0),
       location: GpsLocation(
-        latitude: (data['lat'] ?? 0.0).toDouble(),
-        longitude: (data['lng'] ?? 0.0).toDouble(),
-        altitude: (data['alt'] ?? 0.0).toDouble(),
-        accuracy: (data['gps_accuracy'] ?? 5.0).toDouble(),
+        latitude: _asDouble(data['lat'], 0),
+        longitude: _asDouble(data['lng'], 0),
+        altitude: _asDouble(data['alt'] ?? data['altitude'], 0),
+        accuracy: _asDouble(data['gps_accuracy'], 5),
         timestamp: DateTime.now(),
       ),
-      orientation: (data['orientation'] ?? 0.0).toDouble(),
-      impactForce: (data['impact'] ?? 0.0).toDouble(),
+      orientation: _asDouble(data['orientation'], 0),
+      impactForce: _asDouble(data['impact'] ?? data['total_accel'], 0),
       additionalSensors: {
-        'temperature': data['temperature'] ?? 25.0,
-        'humidity': data['humidity'] ?? 50.0,
-        'pressure': data['pressure'] ?? 1013.25,
-        'battery_voltage': data['battery_voltage'] ?? 3.7,
-        'mq135_ppm': data['mq135_ppm'] ?? data['mq135'] ?? 0.0,
-        'mq135': data['mq135_ppm'] ?? data['mq135'] ?? 0.0,
-        'rssi': data['rssi'] ?? -60,
+        'temperature': _asDouble(data['temperature'], 25),
+        'humidity': _asDouble(data['humidity'], 50),
+        'pressure': _asDouble(data['pressure'], 1013.25),
+        'battery_voltage': _asDouble(data['battery_voltage'], 3.7),
+        'mq135_ppm': _asDouble(data['mq135_ppm'] ?? data['mq135'], 0),
+        'mq135': _asDouble(data['mq135_ppm'] ?? data['mq135'], 0),
+        'rssi': _asInt(data['rssi'], -60),
       },
     );
   }
@@ -209,17 +253,18 @@ class ESP32Service {
     if (device == null) return false;
 
     try {
+      final endpoint = _endpoint(device.ipAddress);
       final response = await http
           .post(
-            Uri.parse('http://${device.ipAddress}:$_defaultPort/config'),
-            headers: {'Content-Type': 'application/json'},
+            Uri.parse('$endpoint/config'),
+            headers: _headers(deviceId),
             body: jsonEncode(config),
           )
           .timeout(_connectionTimeout);
 
       return response.statusCode == 200;
     } catch (e) {
-      print('Failed to configure device $deviceId: $e');
+      debugPrint('Failed to configure device $deviceId: $e');
       return false;
     }
   }
@@ -230,16 +275,19 @@ class ESP32Service {
     if (device == null) return null;
 
     try {
-      final response = await http.get(
-        Uri.parse('http://${device.ipAddress}:$_defaultPort/status'),
-        headers: {'Content-Type': 'application/json'},
-      ).timeout(_connectionTimeout);
+      final endpoint = _endpoint(device.ipAddress);
+      final response = await http
+          .get(
+            Uri.parse('$endpoint/status'),
+            headers: _headers(deviceId),
+          )
+          .timeout(_connectionTimeout);
 
       if (response.statusCode == 200) {
-        return jsonDecode(response.body);
+        return jsonDecode(response.body) as Map<String, dynamic>;
       }
     } catch (e) {
-      print('Failed to get status for device $deviceId: $e');
+      debugPrint('Failed to get status for device $deviceId: $e');
     }
 
     return null;
@@ -251,14 +299,17 @@ class ESP32Service {
     if (device == null) return false;
 
     try {
-      final response = await http.post(
-        Uri.parse('http://${device.ipAddress}:$_defaultPort/calibrate'),
-        headers: {'Content-Type': 'application/json'},
-      ).timeout(const Duration(seconds: 30)); // Calibration takes time
+      final endpoint = _endpoint(device.ipAddress);
+      final response = await http
+          .post(
+            Uri.parse('$endpoint/calibrate'),
+            headers: _headers(deviceId),
+          )
+          .timeout(const Duration(seconds: 30));
 
       return response.statusCode == 200;
     } catch (e) {
-      print('Failed to calibrate device $deviceId: $e');
+      debugPrint('Failed to calibrate device $deviceId: $e');
       return false;
     }
   }
@@ -269,10 +320,13 @@ class ESP32Service {
     if (device == null) return false;
 
     try {
-      final response = await http.post(
-        Uri.parse('http://${device.ipAddress}:$_defaultPort/restart'),
-        headers: {'Content-Type': 'application/json'},
-      ).timeout(_connectionTimeout);
+      final endpoint = _endpoint(device.ipAddress);
+      final response = await http
+          .post(
+            Uri.parse('$endpoint/restart'),
+            headers: _headers(deviceId),
+          )
+          .timeout(_connectionTimeout);
 
       if (response.statusCode == 200) {
         // Mark device as disconnected temporarily
@@ -286,7 +340,7 @@ class ESP32Service {
         return true;
       }
     } catch (e) {
-      print('Failed to restart device $deviceId: $e');
+      debugPrint('Failed to restart device $deviceId: $e');
     }
 
     return false;
@@ -298,17 +352,18 @@ class ESP32Service {
     if (device == null) return false;
 
     try {
+      final endpoint = _endpoint(device.ipAddress);
       final response = await http
           .post(
-            Uri.parse('http://${device.ipAddress}:$_defaultPort/update'),
-            headers: {'Content-Type': 'application/json'},
+            Uri.parse('$endpoint/update'),
+            headers: _headers(deviceId),
             body: jsonEncode({'firmware_url': firmwareUrl}),
           )
-          .timeout(const Duration(minutes: 5)); // Firmware update takes time
+          .timeout(const Duration(minutes: 5));
 
       return response.statusCode == 200;
     } catch (e) {
-      print('Failed to update firmware for device $deviceId: $e');
+      debugPrint('Failed to update firmware for device $deviceId: $e');
       return false;
     }
   }
@@ -324,10 +379,11 @@ class ESP32Service {
     if (device == null) return null;
 
     try {
+      final endpoint = _endpoint(device.ipAddress);
       final response = await http
           .post(
-            Uri.parse('http://${device.ipAddress}:$_defaultPort/export'),
-            headers: {'Content-Type': 'application/json'},
+            Uri.parse('$endpoint/export'),
+            headers: _headers(deviceId),
             body: jsonEncode({
               'start_date': startDate?.toIso8601String(),
               'end_date': endDate?.toIso8601String(),
@@ -340,7 +396,7 @@ class ESP32Service {
         return response.body;
       }
     } catch (e) {
-      print('Failed to export data from device $deviceId: $e');
+      debugPrint('Failed to export data from device $deviceId: $e');
     }
 
     return null;
@@ -352,16 +408,19 @@ class ESP32Service {
     if (device == null) return null;
 
     try {
-      final response = await http.get(
-        Uri.parse('http://${device.ipAddress}:$_defaultPort/config'),
-        headers: {'Content-Type': 'application/json'},
-      ).timeout(_connectionTimeout);
+      final endpoint = _endpoint(device.ipAddress);
+      final response = await http
+          .get(
+            Uri.parse('$endpoint/config'),
+            headers: _headers(deviceId),
+          )
+          .timeout(_connectionTimeout);
 
       if (response.statusCode == 200) {
-        return jsonDecode(response.body);
+        return jsonDecode(response.body) as Map<String, dynamic>;
       }
     } catch (e) {
-      print('Failed to get configuration for device $deviceId: $e');
+      debugPrint('Failed to get configuration for device $deviceId: $e');
     }
 
     return null;
@@ -396,6 +455,34 @@ class ESP32Service {
     _dataTimer?.cancel();
     _dataStreamController.close();
   }
+
+  String _endpoint(String address, {String? port}) {
+    final trimmed = address.trim();
+    if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
+      return trimmed.endsWith('/')
+          ? trimmed.substring(0, trimmed.length - 1)
+          : trimmed;
+    }
+    final hasPort = trimmed.contains(':');
+    final resolvedPort = port ?? (hasPort ? null : _defaultPort);
+    return 'http://$trimmed${resolvedPort == null ? '' : ':$resolvedPort'}';
+  }
+
+  String _addressForDevice(String host, String port) {
+    return port == _defaultPort ? host : '$host:$port';
+  }
+
+  double _asDouble(Object? value, double fallback) {
+    if (value is num) return value.toDouble();
+    if (value is String) return double.tryParse(value) ?? fallback;
+    return fallback;
+  }
+
+  int _asInt(Object? value, int fallback) {
+    if (value is num) return value.toInt();
+    if (value is String) return int.tryParse(value) ?? fallback;
+    return fallback;
+  }
 }
 
 /// ESP32 Device Model
@@ -428,8 +515,8 @@ class ESP32Device {
       isConnected: true,
       lastSeen: DateTime.now(),
       firmwareVersion: json['firmware'] ?? '1.0.0',
-      batteryLevel: json['battery'] ?? 100,
-      signalStrength: json['rssi'] ?? -50,
+      batteryLevel: _jsonInt(json['battery'], 100),
+      signalStrength: _jsonInt(json['rssi'], -50),
     );
   }
 
@@ -467,4 +554,10 @@ class ESP32Device {
     if (signalStrength > -70) return const Color(0xFFF59E0B); // Amber
     return const Color(0xFFEF4444); // Red
   }
+}
+
+int _jsonInt(Object? value, int fallback) {
+  if (value is num) return value.toInt();
+  if (value is String) return int.tryParse(value) ?? fallback;
+  return fallback;
 }

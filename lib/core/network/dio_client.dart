@@ -235,7 +235,7 @@ class DioClient {
       case DioExceptionType.connectionTimeout:
       case DioExceptionType.sendTimeout:
       case DioExceptionType.receiveTimeout:
-        return NetworkException('Connection timeout. Please check your internet connection.');
+        return const NetworkException('Connection timeout. Please check your internet connection.');
       
       case DioExceptionType.badResponse:
         final statusCode = error.response?.statusCode;
@@ -247,25 +247,25 @@ class DioClient {
           case 400:
             return ValidationException(message);
           case 401:
-            return AuthenticationException('Authentication failed');
+            return const AuthenticationException('Authentication failed');
           case 403:
-            return AuthorizationException('Access denied');
+            return const AuthorizationException('Access denied');
           case 404:
-            return NotFoundException('Resource not found');
+            return const NotFoundException('Resource not found');
           case 500:
-            return ServerException('Internal server error');
+            return const ServerException('Internal server error');
           default:
             return ServerException(message);
         }
       
       case DioExceptionType.cancel:
-        return NetworkException('Request was cancelled');
+        return const NetworkException('Request was cancelled');
       
       case DioExceptionType.connectionError:
-        return NetworkException('No internet connection');
+        return const NetworkException('No internet connection');
       
       case DioExceptionType.badCertificate:
-        return NetworkException('Certificate verification failed');
+        return const NetworkException('Certificate verification failed');
       
       case DioExceptionType.unknown:
         return NetworkException('An unexpected error occurred: ${error.message}');

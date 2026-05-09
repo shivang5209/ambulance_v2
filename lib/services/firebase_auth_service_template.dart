@@ -93,7 +93,7 @@ class FirebaseAuthService {
         lastName: lastName?.trim(),
         role: role,
         hospitalId: hospitalId,
-        preferences: {},
+        preferences: const {},
         isActive: true,
         createdAt: now,
         updatedAt: now,

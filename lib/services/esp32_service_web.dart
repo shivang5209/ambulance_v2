@@ -76,6 +76,8 @@ class ESP32Service {
     return false;
   }
 
+  void setDeviceToken(String deviceId, String token) {}
+
   void injectData(VehicleParameters params) {
     _dataStreamController.add(params);
   }

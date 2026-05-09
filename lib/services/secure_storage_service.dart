@@ -59,4 +59,19 @@ class SecureStorageService {
     final token = await getToken();
     return token != null && token.isNotEmpty;
   }
+
+  // ESP32 device bearer token — used to authenticate /sensors and other device endpoints
+  static const String _deviceBearerTokenKey = 'esp32_bearer_token';
+
+  Future<void> saveDeviceBearerToken(String token) async {
+    await _storage.write(key: _deviceBearerTokenKey, value: token);
+  }
+
+  Future<String?> getDeviceBearerToken() async {
+    return await _storage.read(key: _deviceBearerTokenKey);
+  }
+
+  Future<void> deleteDeviceBearerToken() async {
+    await _storage.delete(key: _deviceBearerTokenKey);
+  }
 }

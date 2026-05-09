@@ -7,6 +7,8 @@ import '../widgets/max_width_container.dart';
 import '../utils/responsive_helper.dart';
 
 class RegisterScreen extends StatefulWidget {
+  const RegisterScreen({super.key});
+
   @override
   _RegisterScreenState createState() => _RegisterScreenState();
 }
@@ -25,7 +27,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text('Register')),
+      appBar: AppBar(title: const Text('Register')),
       body: Center(
         child: MaxWidthContainer(
           maxWidth: 600,
@@ -38,7 +40,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                   children: [
                     TextFormField(
                       controller: _emailController,
-                      decoration: InputDecoration(labelText: 'Email'),
+                      decoration: const InputDecoration(labelText: 'Email'),
                       validator: (value) {
                         if (value == null || value.isEmpty) {
                           return 'Please enter your email';
@@ -48,7 +50,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                     ),
                     TextFormField(
                       controller: _passwordController,
-                      decoration: InputDecoration(labelText: 'Password'),
+                      decoration: const InputDecoration(labelText: 'Password'),
                       obscureText: true,
                       validator: (value) {
                         if (value == null || value.isEmpty) {
@@ -59,7 +61,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                     ),
                     TextFormField(
                       controller: _usernameController,
-                      decoration: InputDecoration(labelText: 'Username'),
+                      decoration: const InputDecoration(labelText: 'Username'),
                       validator: (value) {
                         if (value == null || value.isEmpty) {
                           return 'Please enter your username';
@@ -67,7 +69,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                         return null;
                       },
                     ),
-                    SizedBox(height: 16),
+                    const SizedBox(height: 16),
                     LayoutBuilder(
                       builder: (context, constraints) {
                         if (ResponsiveHelper.isDesktop(context)) {
@@ -76,14 +78,14 @@ class _RegisterScreenState extends State<RegisterScreen> {
                               Expanded(
                                 child: TextFormField(
                                   controller: _firstNameController,
-                                  decoration: InputDecoration(labelText: 'First Name'),
+                                  decoration: const InputDecoration(labelText: 'First Name'),
                                 ),
                               ),
-                              SizedBox(width: 16),
+                              const SizedBox(width: 16),
                               Expanded(
                                 child: TextFormField(
                                   controller: _lastNameController,
-                                  decoration: InputDecoration(labelText: 'Last Name'),
+                                  decoration: const InputDecoration(labelText: 'Last Name'),
                                 ),
                               ),
                             ],
@@ -93,11 +95,11 @@ class _RegisterScreenState extends State<RegisterScreen> {
                             children: [
                               TextFormField(
                                 controller: _firstNameController,
-                                decoration: InputDecoration(labelText: 'First Name'),
+                                decoration: const InputDecoration(labelText: 'First Name'),
                               ),
                               TextFormField(
                                 controller: _lastNameController,
-                                decoration: InputDecoration(labelText: 'Last Name'),
+                                decoration: const InputDecoration(labelText: 'Last Name'),
                               ),
                             ],
                           );
@@ -106,12 +108,12 @@ class _RegisterScreenState extends State<RegisterScreen> {
                     ),
                     TextFormField(
                       controller: _phoneNumberController,
-                      decoration: InputDecoration(labelText: 'Phone Number'),
+                      decoration: const InputDecoration(labelText: 'Phone Number'),
                     ),
-                    SizedBox(height: 16),
+                    const SizedBox(height: 16),
                     DropdownButtonFormField<UserRole>(
-                      value: _selectedRole,
-                      decoration: InputDecoration(labelText: 'Role'),
+                      initialValue: _selectedRole,
+                      decoration: const InputDecoration(labelText: 'Role'),
                       onChanged: (UserRole? newValue) {
                         setState(() {
                           _selectedRole = newValue!;
@@ -127,7 +129,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                     if (_selectedRole == UserRole.hospitalStaff)
                       TextFormField(
                         controller: _hospitalIdController,
-                        decoration: InputDecoration(labelText: 'Hospital ID'),
+                        decoration: const InputDecoration(labelText: 'Hospital ID'),
                         validator: (value) {
                           if (_selectedRole == UserRole.hospitalStaff &&
                               (value == null || value.isEmpty)) {
@@ -136,7 +138,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                           return null;
                         },
                       ),
-                    SizedBox(height: 24),
+                    const SizedBox(height: 24),
                     SizedBox(
                       width: double.infinity,
                       height: 48,
@@ -167,7 +169,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                             }
                           }
                         },
-                        child: Text('Register'),
+                        child: const Text('Register'),
                       ),
                     ),
                   ],

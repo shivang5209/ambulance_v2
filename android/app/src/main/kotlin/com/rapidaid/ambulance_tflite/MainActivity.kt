@@ -1,4 +1,4 @@
-package com.example.stable_ambulance_app
+package com.rapidaid.ambulance_tflite
 
 import io.flutter.embedding.android.FlutterActivity
 

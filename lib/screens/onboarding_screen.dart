@@ -1,11 +1,11 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 import '../config/app_theme.dart';
+import '../services/secure_storage_service.dart';
 import 'initial_login_screen.dart';
 
 // ─── Onboarding data ─────────────────────────────────────────────────────────
@@ -46,11 +46,11 @@ const _pages = [
   _OnboardPage(
     title: 'Connect to Device Hotspot',
     subtitle: 'Step 2 of 5',
-    description:
-        'Go to your phone\'s WiFi settings and connect to:\n\n'
-        '📶  SMART-AMBULANCE-001\n'
-        '🔑  Password: setup123\n\n'
-        'This is a one-time setup step.',
+    description: 'Go to your phone\'s WiFi settings and connect to the hotspot '
+        'printed on your device label:\n\n'
+        '📶  Network: SMART-AMBULANCE-XXXX\n'
+        '🔑  Password: printed on label\n\n'
+        'Also find the Device Token on the label — you\'ll need it in the next step.',
     icon: Icons.wifi_rounded,
     iconBg: Color(0xFF065F46),
     accentColor: Color(0xFF10B981),
@@ -59,8 +59,7 @@ const _pages = [
   _OnboardPage(
     title: 'Enter Your Hotspot Details',
     subtitle: 'Step 3 of 5',
-    description:
-        'Tell the device your mobile hotspot name and password. '
+    description: 'Tell the device your mobile hotspot name and password. '
         'It saves this securely on the chip — no one else can read it. '
         'Your device will then auto-connect every time it powers on.',
     icon: Icons.lock_rounded,
@@ -83,8 +82,7 @@ const _pages = [
   _OnboardPage(
     title: 'Connect & Monitor',
     subtitle: 'Step 5 of 5 — Done!',
-    description:
-        'Open the app, tap "Connect by IP", and enter the IP address '
+    description: 'Open the app, tap "Connect by IP", and enter the IP address '
         'shown on the device\'s OLED screen. '
         'Your device ID is pre-filled. Tap Connect — you\'re live!',
     icon: Icons.sensors_rounded,
@@ -110,19 +108,24 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   // Step 3: WiFi setup form
   final _ssidController = TextEditingController();
   final _passwordController = TextEditingController();
+  final _deviceTokenController = TextEditingController();
   bool _obscurePassword = true;
   bool _isSendingWifi = false;
   String? _wifiError;
+
+  final _secureStorage = SecureStorageService();
 
   @override
   void dispose() {
     _pageController.dispose();
     _ssidController.dispose();
     _passwordController.dispose();
+    _deviceTokenController.dispose();
     super.dispose();
   }
 
   void _next() {
+    FocusManager.instance.primaryFocus?.unfocus();
     if (_currentPage < _pages.length - 1) {
       _pageController.nextPage(
         duration: const Duration(milliseconds: 400),
@@ -134,6 +137,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   }
 
   void _prev() {
+    FocusManager.instance.primaryFocus?.unfocus();
     if (_currentPage > 0) {
       _pageController.previousPage(
         duration: const Duration(milliseconds: 400),
@@ -155,9 +159,15 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   Future<void> _sendWifiToDevice() async {
     final ssid = _ssidController.text.trim();
     final password = _passwordController.text;
+    final deviceToken = _deviceTokenController.text.trim();
 
     if (ssid.isEmpty) {
       setState(() => _wifiError = 'Please enter your hotspot name');
+      return;
+    }
+    if (deviceToken.isEmpty) {
+      setState(
+          () => _wifiError = 'Please enter the Device Token from the label');
       return;
     }
 
@@ -168,16 +178,34 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
 
     try {
       // ESP32 AP mode IP is always 192.168.4.1
-      final response = await http.post(
-        Uri.parse('http://192.168.4.1/wifi'),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({'ssid': ssid, 'password': password}),
-      ).timeout(const Duration(seconds: 10));
+      // setup_token authenticates this provisioning request (Fix 2)
+      final response = await http
+          .post(
+            Uri.parse('http://192.168.4.1/wifi'),
+            headers: {'Content-Type': 'application/json'},
+            body: jsonEncode({
+              'ssid': ssid,
+              'password': password,
+              'setup_token': deviceToken,
+            }),
+          )
+          .timeout(const Duration(seconds: 10));
 
       if (response.statusCode == 200) {
+        // ESP32 returns a bearer token for subsequent /sensors requests (Fix 3)
+        try {
+          final responseData =
+              jsonDecode(response.body) as Map<String, dynamic>;
+          final bearerToken = responseData['bearer_token'] as String?;
+          if (bearerToken != null && bearerToken.isNotEmpty) {
+            await _secureStorage.saveDeviceBearerToken(bearerToken);
+          }
+        } catch (_) {
+          // Response may not be JSON on older firmware — bearer token optional
+        }
+
         if (mounted) {
           setState(() => _isSendingWifi = false);
-          // Show success then move to next step
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
               content: Text('WiFi saved! Device is restarting...'),
@@ -188,6 +216,11 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
           await Future.delayed(const Duration(seconds: 2));
           _next();
         }
+      } else if (response.statusCode == 401) {
+        setState(() {
+          _isSendingWifi = false;
+          _wifiError = 'Invalid Device Token. Check the label and try again.';
+        });
       } else {
         setState(() {
           _isSendingWifi = false;
@@ -198,7 +231,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
       setState(() {
         _isSendingWifi = false;
         _wifiError =
-            'Could not reach device.\nMake sure you are connected to\nSMART-AMBULANCE-001';
+            'Could not reach device.\nMake sure you are connected to\nSMART-AMBULANCE-XXXX';
       });
     }
   }
@@ -207,64 +240,80 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: const Color(0xFF0F172A),
-      body: SafeArea(
-        child: Column(
-          children: [
-            // ── Skip button (top right)
-            Align(
-              alignment: Alignment.topRight,
-              child: Padding(
-                padding: const EdgeInsets.only(top: 8, right: 16),
-                child: TextButton(
-                  onPressed: _finishOnboarding,
-                  child: Text(
-                    'Skip',
-                    style: TextStyle(
-                      color: Colors.white.withValues(alpha: 0.4),
-                      fontSize: 14,
+      body: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: () => FocusManager.instance.primaryFocus?.unfocus(),
+        child: SafeArea(
+          child: Column(
+            children: [
+              // ── Skip button (top right)
+              Align(
+                alignment: Alignment.topRight,
+                child: Padding(
+                  padding: const EdgeInsets.only(top: 8, right: 16),
+                  child: TextButton(
+                    onPressed: _finishOnboarding,
+                    child: Text(
+                      'Skip',
+                      style: TextStyle(
+                        color: Colors.white.withValues(alpha: 0.4),
+                        fontSize: 14,
+                      ),
                     ),
                   ),
                 ),
               ),
-            ),
 
-            // ── Page carousel
-            Expanded(
-              child: PageView.builder(
-                controller: _pageController,
-                onPageChanged: (i) => setState(() => _currentPage = i),
-                itemCount: _pages.length,
-                itemBuilder: (context, index) =>
-                    _buildPage(context, _pages[index], index),
+              // ── Page carousel
+              Expanded(
+                child: PageView.builder(
+                  controller: _pageController,
+                  onPageChanged: (i) {
+                    if (i != 2) {
+                      FocusManager.instance.primaryFocus?.unfocus();
+                    }
+                    setState(() => _currentPage = i);
+                  },
+                  itemCount: _pages.length,
+                  itemBuilder: (context, index) =>
+                      _buildPage(context, _pages[index], index),
+                ),
               ),
-            ),
 
-            // ── Dot indicators
-            _buildDots(),
-            const SizedBox(height: 24),
+              // ── Dot indicators
+              _buildDots(),
+              const SizedBox(height: 14),
 
-            // ── Navigation buttons
-            _buildNavButtons(),
-            const SizedBox(height: 32),
-          ],
+              // ── Navigation buttons
+              _buildNavButtons(),
+              const SizedBox(height: 18),
+            ],
+          ),
         ),
       ),
     );
   }
 
   Widget _buildPage(BuildContext context, _OnboardPage page, int index) {
-    // Step 3 (WiFi form) needs scroll to avoid overflow on small screens
     final isFormStep = index == 2;
+    final media = MediaQuery.of(context);
+    final keyboardOpen = media.viewInsets.bottom > 0;
+    final shortScreen = media.size.height < 740 || keyboardOpen;
+    final illustrationSize = isFormStep
+        ? (shortScreen ? 96.0 : 120.0)
+        : (shortScreen ? 132.0 : 170.0);
+    final titleSize = shortScreen ? 20.0 : 22.0;
+    final bodySize = shortScreen ? 14.0 : 15.0;
 
     final content = Column(
       crossAxisAlignment: CrossAxisAlignment.center,
-      mainAxisSize: isFormStep ? MainAxisSize.min : MainAxisSize.max,
+      mainAxisSize: MainAxisSize.min,
       children: [
         SizedBox(height: isFormStep ? 4 : 8),
 
-        // ── Illustration — smaller on the form step to save vertical space
-        _buildIllustration(page, size: isFormStep ? 120 : 180),
-        SizedBox(height: isFormStep ? 14 : 32),
+        // ── Illustration
+        _buildIllustration(page, size: illustrationSize),
+        SizedBox(height: isFormStep ? 14 : 20),
 
         // ── Step label
         Container(
@@ -292,9 +341,9 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
         // ── Title
         Text(
           page.title,
-          style: const TextStyle(
+          style: TextStyle(
             color: Colors.white,
-            fontSize: 22,
+            fontSize: titleSize,
             fontWeight: FontWeight.bold,
             height: 1.2,
           ),
@@ -311,26 +360,22 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
             page.description,
             style: TextStyle(
               color: Colors.white.withValues(alpha: 0.65),
-              fontSize: 15,
-              height: 1.6,
+              fontSize: bodySize,
+              height: shortScreen ? 1.45 : 1.6,
             ),
             textAlign: TextAlign.center,
           ).animate().fadeIn(duration: 400.ms, delay: 200.ms),
 
-        if (isFormStep) const SizedBox(height: 8),
+        SizedBox(height: isFormStep ? 8 : 12),
       ],
     );
 
-    return isFormStep
-        ? SingleChildScrollView(
-            padding: const EdgeInsets.symmetric(horizontal: 28),
-            physics: const ClampingScrollPhysics(),
-            child: content,
-          )
-        : Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 28),
-            child: content,
-          );
+    return SingleChildScrollView(
+      padding: const EdgeInsets.symmetric(horizontal: 28),
+      keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+      physics: const ClampingScrollPhysics(),
+      child: content,
+    );
   }
 
   Widget _buildIllustration(_OnboardPage page, {double size = 180}) {
@@ -376,7 +421,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     return Column(
       children: [
         Text(
-          'Enter your mobile hotspot details so the device can connect automatically.',
+          'Enter your mobile hotspot details and the Device Token printed on the device label.',
           style: TextStyle(
             color: Colors.white.withValues(alpha: 0.65),
             fontSize: 14,
@@ -385,6 +430,31 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
           textAlign: TextAlign.center,
         ),
         const SizedBox(height: 20),
+
+        // Device Token field
+        TextField(
+          controller: _deviceTokenController,
+          style: const TextStyle(color: Colors.white, fontFamily: 'monospace'),
+          decoration: InputDecoration(
+            labelText: 'Device Token (from label)',
+            labelStyle: TextStyle(color: Colors.white.withValues(alpha: 0.5)),
+            hintText: 'e.g. a3f9-k2m1',
+            hintStyle: TextStyle(color: Colors.white.withValues(alpha: 0.3)),
+            prefixIcon: Icon(Icons.qr_code_rounded, color: page.accentColor),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide:
+                  BorderSide(color: Colors.white.withValues(alpha: 0.2)),
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: BorderSide(color: page.accentColor),
+            ),
+            filled: true,
+            fillColor: Colors.white.withValues(alpha: 0.06),
+          ),
+        ),
+        const SizedBox(height: 12),
 
         // SSID field
         TextField(
@@ -398,7 +468,8 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
             prefixIcon: Icon(Icons.wifi, color: page.accentColor),
             enabledBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(12),
-              borderSide: BorderSide(color: Colors.white.withValues(alpha: 0.2)),
+              borderSide:
+                  BorderSide(color: Colors.white.withValues(alpha: 0.2)),
             ),
             focusedBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(12),
@@ -429,7 +500,8 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
             ),
             enabledBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(12),
-              borderSide: BorderSide(color: Colors.white.withValues(alpha: 0.2)),
+              borderSide:
+                  BorderSide(color: Colors.white.withValues(alpha: 0.2)),
             ),
             focusedBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(12),

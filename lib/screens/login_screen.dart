@@ -110,7 +110,7 @@ class _LoginScreenState extends State<LoginScreen> {
                             onPressed: _submit,
                             style: ElevatedButton.styleFrom(
                                 backgroundColor: Colors.red),
-                            child: Text('Login'),
+                            child: const Text('Login'),
                           ),
                         ),
                       ],

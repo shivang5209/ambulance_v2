@@ -5,6 +5,7 @@ export 'ambulance.dart';
 export 'hospital.dart';
 export 'accident_alert.dart';
 export 'vehicle_parameters.dart';
+export 'ride_test_session.dart';
 export 'accident_event.dart' hide AccidentSeverity; // Hide to avoid conflict with accident_alert
 export 'ambulance_request.dart';
 export 'emergency_response.dart';

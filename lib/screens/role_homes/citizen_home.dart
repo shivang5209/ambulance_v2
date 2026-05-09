@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../models/user.dart';
-import '../home_screen.dart' show HomeScreen; // reuse home if needed
+// reuse home if needed
 
 class CitizenHome extends StatelessWidget {
   final User user;

@@ -9,7 +9,7 @@ class NotificationService {
     await _firebaseMessaging.requestPermission();
 
     // Get the token
-    String? token = await _firebaseMessaging.getToken();
+    final String? token = await _firebaseMessaging.getToken();
     debugPrint('Firebase Messaging Token: $token');
 
     // Handle incoming messages

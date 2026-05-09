@@ -10,6 +10,7 @@
 /// continues to compile without any changes to the screen files.
 ///
 /// New code should import from lib/theme/ directly.
+library;
 
 export 'package:ambulance_v2/theme/app_theme.dart';
 export 'package:ambulance_v2/theme/app_colors.dart';

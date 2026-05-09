@@ -95,6 +95,10 @@ dev_dependencies:
   json_serializable: ^6.7.1
   flutter_launcher_icons: ^0.14.4
 
+dependency_overrides:
+  tflite_flutter:
+    path: third_party/tflite_flutter
+
 flutter_launcher_icons:
   android: true
   ios: false

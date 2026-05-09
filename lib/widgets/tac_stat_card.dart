@@ -213,8 +213,8 @@ class _IconContainer extends StatelessWidget {
     // Design: rounded square (radius 10) at 40×40 keeps the icon visually
     // anchored without dominating the card. 10% opacity fill is subtle enough
     // not to clash with dark surfaces.
-    double size = ResponsiveHelper.value(context, mobile: 40.0, desktop: 56.0);
-    double iconSize = ResponsiveHelper.value(context, mobile: 20.0, desktop: 28.0);
+    final double size = ResponsiveHelper.value(context, mobile: 40.0, desktop: 56.0);
+    final double iconSize = ResponsiveHelper.value(context, mobile: 20.0, desktop: 28.0);
     return Container(
       width: size,
       height: size,

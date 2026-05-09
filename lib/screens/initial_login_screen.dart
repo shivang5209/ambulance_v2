@@ -22,6 +22,9 @@ class InitialLoginScreen extends StatefulWidget {
 
 class _InitialLoginScreenState extends State<InitialLoginScreen>
     with SingleTickerProviderStateMixin {
+  static const _fieldTextColor = Color(0xFF17335C);
+  static const _fieldHintColor = Color(0xFF6B7A90);
+
   final _formKey = GlobalKey<FormState>();
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
@@ -348,18 +351,27 @@ class _InitialLoginScreenState extends State<InitialLoginScreen>
       child: TextFormField(
         controller: _emailController,
         keyboardType: TextInputType.emailAddress,
+        cursorColor: AppTheme.primary,
         style: GoogleFonts.inter(
-          color: Colors.white,
+          color: _fieldTextColor,
           fontSize: 16,
         ),
         decoration: InputDecoration(
-          labelText: 'Email or Username',
+          hintText: 'Enter your email',
+          labelText: 'Email',
           labelStyle: GoogleFonts.inter(
-            color: Colors.white.withValues(alpha: 0.7),
+            color: _fieldHintColor,
+          ),
+          floatingLabelStyle: GoogleFonts.inter(
+            color: _fieldTextColor,
+            fontWeight: FontWeight.w600,
+          ),
+          hintStyle: GoogleFonts.inter(
+            color: _fieldHintColor,
           ),
           prefixIcon: const Icon(
             Icons.email_outlined,
-            color: Colors.white,
+            color: _fieldHintColor,
           ),
           border: InputBorder.none,
           contentPadding: const EdgeInsets.symmetric(
@@ -369,7 +381,7 @@ class _InitialLoginScreenState extends State<InitialLoginScreen>
         ),
         validator: (value) {
           if (value == null || value.isEmpty) {
-            return 'Please enter your email or username';
+            return 'Please enter your email';
           }
           return null;
         },
@@ -390,25 +402,34 @@ class _InitialLoginScreenState extends State<InitialLoginScreen>
       child: TextFormField(
         controller: _passwordController,
         obscureText: _obscurePassword,
+        cursorColor: AppTheme.primary,
         style: GoogleFonts.inter(
-          color: Colors.white,
+          color: _fieldTextColor,
           fontSize: 16,
         ),
         decoration: InputDecoration(
+          hintText: 'Enter your password',
           labelText: 'Password',
           labelStyle: GoogleFonts.inter(
-            color: Colors.white.withValues(alpha: 0.7),
+            color: _fieldHintColor,
+          ),
+          floatingLabelStyle: GoogleFonts.inter(
+            color: _fieldTextColor,
+            fontWeight: FontWeight.w600,
+          ),
+          hintStyle: GoogleFonts.inter(
+            color: _fieldHintColor,
           ),
           prefixIcon: const Icon(
             Icons.lock_outline,
-            color: Colors.white,
+            color: _fieldHintColor,
           ),
           suffixIcon: IconButton(
             icon: Icon(
               _obscurePassword
                   ? Icons.visibility_outlined
                   : Icons.visibility_off_outlined,
-              color: Colors.white,
+              color: _fieldHintColor,
             ),
             onPressed: () {
               setState(() => _obscurePassword = !_obscurePassword);

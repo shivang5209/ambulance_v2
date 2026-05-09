@@ -20,6 +20,7 @@ import '../widgets/max_width_container.dart';
 import '../widgets/ops_ui.dart';
 import 'esp32_management_screen.dart';
 import 'initial_login_screen.dart';
+import 'ride_test_screen.dart';
 import 'role_home_shell.dart';
 import 'role_selection_screen.dart';
 
@@ -221,6 +222,12 @@ class _AdminRoleShellScreenState extends State<AdminRoleShellScreen> {
     );
   }
 
+  void _openRideTest() {
+    Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => const RideTestScreen()),
+    );
+  }
+
   void _showConnectDialog() {
     final ipController = TextEditingController();
     final idController = TextEditingController(text: 'ESP32-ACCIDENT-001');
@@ -283,8 +290,15 @@ class _AdminRoleShellScreenState extends State<AdminRoleShellScreen> {
       subtitle: 'ML operations shell',
       actions: [
         IconButton.filledTonal(
+          onPressed: _openRideTest,
+          icon: const Icon(Icons.route_rounded),
+          tooltip: 'Ride Test',
+        ),
+        const SizedBox(width: 8),
+        IconButton.filledTonal(
           onPressed: _showConnectDialog,
           icon: const Icon(Icons.wifi_tethering_rounded),
+          tooltip: 'Connect device',
         ),
       ],
       tabs: [
@@ -1103,6 +1117,12 @@ class _AdminRoleShellScreenState extends State<AdminRoleShellScreen> {
                 icon: Icons.memory_rounded,
                 tone: AppColors.success,
                 onTap: _openManagement,
+              ),
+              OpsActionButton(
+                label: 'Ride test',
+                icon: Icons.route_rounded,
+                tone: AppColors.accent,
+                onTap: _openRideTest,
               ),
               OpsActionButton(
                 label: 'Switch role',

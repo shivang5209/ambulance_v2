@@ -4,6 +4,7 @@ import 'dart:async';
 import '../core/constants/app_theme.dart';
 import '../services/esp32_service.dart';
 import '../services/esp32_simulator.dart';
+import '../services/secure_storage_service.dart';
 import '../models/models.dart';
 
 class ESP32ManagementScreen extends StatefulWidget {
@@ -54,7 +55,7 @@ class _ESP32ManagementScreenState extends State<ESP32ManagementScreen> {
         _latestData = data;
       });
     });
-    
+
     // Also listen to simulator data
     _simulatorSubscription = _simulator.simulatedDataStream.listen((data) {
       if (_isDemoMode) {
@@ -111,7 +112,8 @@ class _ESP32ManagementScreenState extends State<ESP32ManagementScreen> {
                   color: device.statusColor,
                 ),
                 title: Text(device.name),
-                subtitle: Text('${device.ipAddress} • ${device.firmwareVersion}'),
+                subtitle:
+                    Text('${device.ipAddress} • ${device.firmwareVersion}'),
                 trailing: ElevatedButton(
                   onPressed: () => _connectToDevice(device),
                   child: const Text('Connect'),
@@ -219,13 +221,16 @@ class _ESP32ManagementScreenState extends State<ESP32ManagementScreen> {
   Future<void> _connectToDevice(ESP32Device device) async {
     Navigator.pop(context); // Close dialog
 
-    final success = await _esp32Service.connectToDevice(device.id, device.ipAddress);
-    
+    await _loadBearerToken(device.id);
+    final success =
+        await _esp32Service.connectToDevice(device.id, device.ipAddress);
+    if (!mounted) return;
+
     if (success) {
       setState(() {
         _devices = _esp32Service.connectedDevices;
       });
-      
+
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('Connected to ${device.name}'),
@@ -243,13 +248,15 @@ class _ESP32ManagementScreenState extends State<ESP32ManagementScreen> {
       return;
     }
 
+    await _loadBearerToken(deviceId);
     final success = await _esp32Service.connectToDevice(deviceId, ipAddress);
-    
+    if (!mounted) return;
+
     if (success) {
       setState(() {
         _devices = _esp32Service.connectedDevices;
       });
-      
+
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('Connected to $deviceId'),
@@ -258,6 +265,15 @@ class _ESP32ManagementScreenState extends State<ESP32ManagementScreen> {
       );
     } else {
       _showErrorDialog('Failed to connect to $deviceId at $ipAddress');
+    }
+  }
+
+  // Load bearer token from secure storage and register it with ESP32Service
+  // so all subsequent requests to this device include the Authorization header.
+  Future<void> _loadBearerToken(String deviceId) async {
+    final token = await SecureStorageService().getDeviceBearerToken();
+    if (token != null && token.isNotEmpty) {
+      _esp32Service.setDeviceToken(deviceId, token);
     }
   }
 
@@ -289,7 +305,7 @@ class _ESP32ManagementScreenState extends State<ESP32ManagementScreen> {
         _simulator.startSimulation();
       }
     }
-    
+
     setState(() {
       _isDataCollectionActive = !_isDataCollectionActive;
     });
@@ -306,11 +322,11 @@ class _ESP32ManagementScreenState extends State<ESP32ManagementScreen> {
       setState(() {
         _devices = simulatedDevices;
       });
-      
+
       if (_isDataCollectionActive) {
         _simulator.startSimulation();
       }
-      
+
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Demo mode enabled - Showing simulated ESP32 devices'),
@@ -321,7 +337,7 @@ class _ESP32ManagementScreenState extends State<ESP32ManagementScreen> {
       // Exit demo mode
       _simulator.stopSimulation();
       _loadConnectedDevices(); // Load real devices
-      
+
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Demo mode disabled - Showing real devices'),
@@ -343,9 +359,12 @@ class _ESP32ManagementScreenState extends State<ESP32ManagementScreen> {
             tooltip: _isDemoMode ? 'Exit Demo Mode' : 'Enter Demo Mode',
           ),
           IconButton(
-            icon: Icon(_isDataCollectionActive ? Icons.pause : Icons.play_arrow),
+            icon:
+                Icon(_isDataCollectionActive ? Icons.pause : Icons.play_arrow),
             onPressed: _toggleDataCollection,
-            tooltip: _isDataCollectionActive ? 'Stop Data Collection' : 'Start Data Collection',
+            tooltip: _isDataCollectionActive
+                ? 'Stop Data Collection'
+                : 'Start Data Collection',
           ),
           IconButton(
             icon: const Icon(Icons.refresh),
@@ -361,35 +380,35 @@ class _ESP32ManagementScreenState extends State<ESP32ManagementScreen> {
           children: [
             // Demo Mode Info Card
             if (_isDemoMode) _buildDemoModeInfoCard(),
-            
+
             if (_isDemoMode) const SizedBox(height: 24),
-            
+
             // Connection Status Card
             _buildConnectionStatusCard(),
-            
+
             const SizedBox(height: 24),
-            
+
             // Latest Sensor Data
             if (_latestData != null) _buildLatestDataCard(),
-            
+
             const SizedBox(height: 24),
-            
+
             // Real-time Data Visualization
             if (_latestData != null) _buildRealTimeVisualization(),
-            
+
             const SizedBox(height: 24),
-            
+
             // Connected Devices
             _buildConnectedDevicesSection(),
-            
+
             const SizedBox(height: 24),
-            
+
             // Device Actions
             _buildDeviceActionsSection(),
           ],
         ),
       ),
-      floatingActionButton: _isDemoMode 
+      floatingActionButton: _isDemoMode
           ? FloatingActionButton.extended(
               onPressed: _toggleDemoMode,
               icon: const Icon(Icons.sensors),
@@ -398,7 +417,7 @@ class _ESP32ManagementScreenState extends State<ESP32ManagementScreen> {
             )
           : FloatingActionButton.extended(
               onPressed: _isScanning ? null : _scanForDevices,
-              icon: _isScanning 
+              icon: _isScanning
                   ? const SizedBox(
                       width: 20,
                       height: 20,
@@ -438,16 +457,16 @@ class _ESP32ManagementScreenState extends State<ESP32ManagementScreen> {
                 Text(
                   'Demo Mode Active',
                   style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w600,
-                    color: AppTheme.monitoringActive,
-                  ),
+                        fontWeight: FontWeight.w600,
+                        color: AppTheme.monitoringActive,
+                      ),
                 ),
                 const SizedBox(height: 4),
                 Text(
                   'You\'re viewing simulated ESP32 devices with realistic sensor data. Tap the computer icon to exit demo mode.',
                   style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: AppTheme.monitoringActive,
-                  ),
+                        color: AppTheme.monitoringActive,
+                      ),
                 ),
               ],
             ),
@@ -475,7 +494,8 @@ class _ESP32ManagementScreenState extends State<ESP32ManagementScreen> {
                 width: 12,
                 height: 12,
                 decoration: BoxDecoration(
-                  color: _devices.isNotEmpty ? AppTheme.success : AppTheme.error,
+                  color:
+                      _devices.isNotEmpty ? AppTheme.success : AppTheme.error,
                   shape: BoxShape.circle,
                 ),
               ),
@@ -484,15 +504,16 @@ class _ESP32ManagementScreenState extends State<ESP32ManagementScreen> {
                 child: Text(
                   _isDemoMode ? 'ESP32 Demo Mode' : 'ESP32 Connection Status',
                   style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                    fontWeight: FontWeight.w600,
-                  ),
+                        fontWeight: FontWeight.w600,
+                      ),
                   overflow: TextOverflow.ellipsis,
                 ),
               ),
               if (_isDemoMode) ...[
                 const SizedBox(width: 8),
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                   decoration: BoxDecoration(
                     color: AppTheme.monitoringActive,
                     borderRadius: BorderRadius.circular(8),
@@ -500,23 +521,24 @@ class _ESP32ManagementScreenState extends State<ESP32ManagementScreen> {
                   child: Text(
                     'DEMO',
                     style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                      color: Colors.white,
-                      fontWeight: FontWeight.bold,
-                    ),
+                          color: Colors.white,
+                          fontWeight: FontWeight.bold,
+                        ),
                   ),
                 ),
               ],
             ],
           ),
           const SizedBox(height: 16),
-          
           Row(
             children: [
               Expanded(
                 child: _buildStatusMetric(
                   'Connected Devices',
                   '${_devices.length}',
-                  _devices.isEmpty ? 'No devices connected' : 'Active connections',
+                  _devices.isEmpty
+                      ? 'No devices connected'
+                      : 'Active connections',
                   Icons.sensors,
                 ),
               ),
@@ -526,7 +548,9 @@ class _ESP32ManagementScreenState extends State<ESP32ManagementScreen> {
                   'Data Collection',
                   _isDataCollectionActive ? 'Active' : 'Stopped',
                   _isDataCollectionActive ? 'Receiving data' : 'Paused',
-                  _isDataCollectionActive ? Icons.play_circle : Icons.pause_circle,
+                  _isDataCollectionActive
+                      ? Icons.play_circle
+                      : Icons.pause_circle,
                 ),
               ),
             ],
@@ -536,7 +560,8 @@ class _ESP32ManagementScreenState extends State<ESP32ManagementScreen> {
     );
   }
 
-  Widget _buildStatusMetric(String label, String value, String subtitle, IconData icon) {
+  Widget _buildStatusMetric(
+      String label, String value, String subtitle, IconData icon) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -552,8 +577,11 @@ class _ESP32ManagementScreenState extends State<ESP32ManagementScreen> {
               child: Text(
                 label,
                 style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                  color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.7),
-                ),
+                      color: Theme.of(context)
+                          .colorScheme
+                          .onSurface
+                          .withValues(alpha: 0.7),
+                    ),
                 overflow: TextOverflow.ellipsis,
               ),
             ),
@@ -563,15 +591,18 @@ class _ESP32ManagementScreenState extends State<ESP32ManagementScreen> {
         Text(
           value,
           style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-            fontWeight: FontWeight.bold,
-            color: AppTheme.monitoringActive,
-          ),
+                fontWeight: FontWeight.bold,
+                color: AppTheme.monitoringActive,
+              ),
         ),
         Text(
           subtitle,
           style: Theme.of(context).textTheme.bodySmall?.copyWith(
-            color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6),
-          ),
+                color: Theme.of(context)
+                    .colorScheme
+                    .onSurface
+                    .withValues(alpha: 0.6),
+              ),
         ),
       ],
     );
@@ -591,26 +622,33 @@ class _ESP32ManagementScreenState extends State<ESP32ManagementScreen> {
           Text(
             'Latest Sensor Data',
             style: Theme.of(context).textTheme.titleLarge?.copyWith(
-              fontWeight: FontWeight.w600,
-            ),
+                  fontWeight: FontWeight.w600,
+                ),
           ),
           const SizedBox(height: 16),
-          
           Column(
             children: [
               Row(
                 children: [
-                  Expanded(child: _buildDataTile('Speed', '${_latestData!.speed.toStringAsFixed(1)} km/h')),
+                  Expanded(
+                      child: _buildDataTile('Speed',
+                          '${_latestData!.speed.toStringAsFixed(1)} km/h')),
                   const SizedBox(width: 16),
-                  Expanded(child: _buildDataTile('G-Force', '${_latestData!.totalAcceleration.toStringAsFixed(2)}G')),
+                  Expanded(
+                      child: _buildDataTile('G-Force',
+                          '${_latestData!.totalAcceleration.toStringAsFixed(2)}G')),
                 ],
               ),
               const SizedBox(height: 16),
               Row(
                 children: [
-                  Expanded(child: _buildDataTile('Impact', '${_latestData!.impactForce.toStringAsFixed(2)}G')),
+                  Expanded(
+                      child: _buildDataTile('Impact',
+                          '${_latestData!.impactForce.toStringAsFixed(2)}G')),
                   const SizedBox(width: 16),
-                  Expanded(child: _buildDataTile('GPS Acc.', '${_latestData!.location.accuracy.toStringAsFixed(1)}m')),
+                  Expanded(
+                      child: _buildDataTile('GPS Acc.',
+                          '${_latestData!.location.accuracy.toStringAsFixed(1)}m')),
                 ],
               ),
             ],
@@ -633,16 +671,19 @@ class _ESP32ManagementScreenState extends State<ESP32ManagementScreen> {
           Text(
             label,
             style: Theme.of(context).textTheme.bodySmall?.copyWith(
-              color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.7),
-            ),
+                  color: Theme.of(context)
+                      .colorScheme
+                      .onSurface
+                      .withValues(alpha: 0.7),
+                ),
           ),
           const SizedBox(height: 4),
           Text(
             value,
             style: Theme.of(context).textTheme.titleMedium?.copyWith(
-              fontWeight: FontWeight.bold,
-              color: AppTheme.monitoringActive,
-            ),
+                  fontWeight: FontWeight.bold,
+                  color: AppTheme.monitoringActive,
+                ),
           ),
         ],
       ),
@@ -663,11 +704,10 @@ class _ESP32ManagementScreenState extends State<ESP32ManagementScreen> {
           Text(
             'Connected Devices',
             style: Theme.of(context).textTheme.titleLarge?.copyWith(
-              fontWeight: FontWeight.w600,
-            ),
+                  fontWeight: FontWeight.w600,
+                ),
           ),
           const SizedBox(height: 16),
-          
           if (_devices.isEmpty)
             Center(
               child: Column(
@@ -675,21 +715,30 @@ class _ESP32ManagementScreenState extends State<ESP32ManagementScreen> {
                   Icon(
                     Icons.sensors_off,
                     size: 48,
-                    color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.3),
+                    color: Theme.of(context)
+                        .colorScheme
+                        .onSurface
+                        .withValues(alpha: 0.3),
                   ),
                   const SizedBox(height: 16),
                   Text(
                     'No devices connected',
                     style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                      color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6),
-                    ),
+                          color: Theme.of(context)
+                              .colorScheme
+                              .onSurface
+                              .withValues(alpha: 0.6),
+                        ),
                   ),
                   const SizedBox(height: 8),
                   Text(
                     'Tap the scan button to find ESP32 devices',
                     style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.5),
-                    ),
+                          color: Theme.of(context)
+                              .colorScheme
+                              .onSurface
+                              .withValues(alpha: 0.5),
+                        ),
                   ),
                 ],
               ),
@@ -736,9 +785,7 @@ class _ESP32ManagementScreenState extends State<ESP32ManagementScreen> {
               size: 24,
             ),
           ),
-          
           const SizedBox(width: 12),
-          
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -748,15 +795,17 @@ class _ESP32ManagementScreenState extends State<ESP32ManagementScreen> {
                     Flexible(
                       child: Text(
                         device.name,
-                        style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                          fontWeight: FontWeight.w600,
-                        ),
+                        style:
+                            Theme.of(context).textTheme.titleMedium?.copyWith(
+                                  fontWeight: FontWeight.w600,
+                                ),
                         overflow: TextOverflow.ellipsis,
                       ),
                     ),
                     const SizedBox(width: 8),
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 8, vertical: 2),
                       decoration: BoxDecoration(
                         color: device.statusColor,
                         borderRadius: BorderRadius.circular(8),
@@ -764,9 +813,9 @@ class _ESP32ManagementScreenState extends State<ESP32ManagementScreen> {
                       child: Text(
                         device.isConnected ? 'Connected' : 'Offline',
                         style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                          color: Colors.white,
-                          fontWeight: FontWeight.w600,
-                        ),
+                              color: Colors.white,
+                              fontWeight: FontWeight.w600,
+                            ),
                       ),
                     ),
                   ],
@@ -788,8 +837,8 @@ class _ESP32ManagementScreenState extends State<ESP32ManagementScreen> {
                     Text(
                       '${device.signalStrength}dBm',
                       style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: device.signalColor,
-                      ),
+                            color: device.signalColor,
+                          ),
                     ),
                     const SizedBox(width: 16),
                     Icon(
@@ -801,17 +850,20 @@ class _ESP32ManagementScreenState extends State<ESP32ManagementScreen> {
                     Text(
                       '${device.batteryLevel}%',
                       style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: device.batteryColor,
-                      ),
+                            color: device.batteryColor,
+                          ),
                     ),
                     const SizedBox(width: 16),
                     Flexible(
                       child: Text(
                         device.ipAddress,
                         style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6),
-                          fontFamily: 'monospace',
-                        ),
+                              color: Theme.of(context)
+                                  .colorScheme
+                                  .onSurface
+                                  .withValues(alpha: 0.6),
+                              fontFamily: 'monospace',
+                            ),
                         overflow: TextOverflow.ellipsis,
                       ),
                     ),
@@ -839,11 +891,10 @@ class _ESP32ManagementScreenState extends State<ESP32ManagementScreen> {
           Text(
             'Device Actions',
             style: Theme.of(context).textTheme.titleLarge?.copyWith(
-              fontWeight: FontWeight.w600,
-            ),
+                  fontWeight: FontWeight.w600,
+                ),
           ),
           const SizedBox(height: 16),
-          
           Wrap(
             spacing: 12,
             runSpacing: 12,
@@ -879,7 +930,8 @@ class _ESP32ManagementScreenState extends State<ESP32ManagementScreen> {
     );
   }
 
-  Widget _buildActionButton(String label, IconData icon, Color color, VoidCallback? onPressed) {
+  Widget _buildActionButton(
+      String label, IconData icon, Color color, VoidCallback? onPressed) {
     return ElevatedButton.icon(
       onPressed: onPressed,
       icon: Icon(icon, size: 18),
@@ -897,7 +949,7 @@ class _ESP32ManagementScreenState extends State<ESP32ManagementScreen> {
 
   Future<void> _calibrateAllSensors() async {
     if (_devices.isEmpty) return;
-    
+
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
         content: Text('Calibrating sensors on all devices...'),
@@ -910,23 +962,27 @@ class _ESP32ManagementScreenState extends State<ESP32ManagementScreen> {
       final success = await _esp32Service.calibrateSensors(device.id);
       if (success) successCount++;
     }
+    if (!mounted) return;
 
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text('Calibrated $successCount of ${_devices.length} devices'),
-        backgroundColor: successCount == _devices.length ? AppTheme.success : AppTheme.accent,
+        backgroundColor: successCount == _devices.length
+            ? AppTheme.success
+            : AppTheme.accent,
       ),
     );
   }
 
   Future<void> _restartAllDevices() async {
     if (_devices.isEmpty) return;
-    
+
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Restart All Devices'),
-        content: const Text('Are you sure you want to restart all connected ESP32 devices? This will temporarily interrupt data collection.'),
+        content: const Text(
+            'Are you sure you want to restart all connected ESP32 devices? This will temporarily interrupt data collection.'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
@@ -942,6 +998,7 @@ class _ESP32ManagementScreenState extends State<ESP32ManagementScreen> {
     );
 
     if (confirmed != true) return;
+    if (!mounted) return;
 
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
@@ -955,11 +1012,14 @@ class _ESP32ManagementScreenState extends State<ESP32ManagementScreen> {
       final success = await _esp32Service.restartDevice(device.id);
       if (success) successCount++;
     }
+    if (!mounted) return;
 
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text('Restarted $successCount of ${_devices.length} devices'),
-        backgroundColor: successCount == _devices.length ? AppTheme.success : AppTheme.accent,
+        backgroundColor: successCount == _devices.length
+            ? AppTheme.success
+            : AppTheme.accent,
       ),
     );
   }
@@ -975,7 +1035,7 @@ class _ESP32ManagementScreenState extends State<ESP32ManagementScreen> {
     );
 
     String? data;
-    
+
     if (_isDemoMode) {
       // Use simulator for demo data
       data = _simulator.generateSimulatedExportData('json');
@@ -989,6 +1049,7 @@ class _ESP32ManagementScreenState extends State<ESP32ManagementScreen> {
         format: 'json',
       );
     }
+    if (!mounted) return;
 
     if (data != null) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -997,7 +1058,7 @@ class _ESP32ManagementScreenState extends State<ESP32ManagementScreen> {
           backgroundColor: AppTheme.success,
         ),
       );
-      
+
       // Show export preview dialog
       _showExportPreviewDialog(data);
     } else {
@@ -1096,7 +1157,7 @@ class _ESP32ManagementScreenState extends State<ESP32ManagementScreen> {
 
   void _showSamplingRateDialog() {
     Navigator.pop(context); // Close settings dialog
-    
+
     showDialog(
       context: context,
       builder: (context) {
@@ -1133,9 +1194,11 @@ class _ESP32ManagementScreenState extends State<ESP32ManagementScreen> {
                 onPressed: () async {
                   Navigator.pop(context);
                   for (final device in _devices) {
-                    await _esp32Service.setSamplingRate(device.id, selectedRate);
+                    await _esp32Service.setSamplingRate(
+                        device.id, selectedRate);
                   }
-                  ScaffoldMessenger.of(context).showSnackBar(
+                  if (!mounted) return;
+                  ScaffoldMessenger.of(this.context).showSnackBar(
                     SnackBar(
                       content: Text('Sampling rate set to ${selectedRate}Hz'),
                       backgroundColor: AppTheme.success,
@@ -1153,7 +1216,7 @@ class _ESP32ManagementScreenState extends State<ESP32ManagementScreen> {
 
   void _showSensitivityDialog() {
     Navigator.pop(context); // Close settings dialog
-    
+
     showDialog(
       context: context,
       builder: (context) {
@@ -1192,9 +1255,11 @@ class _ESP32ManagementScreenState extends State<ESP32ManagementScreen> {
                   for (final device in _devices) {
                     await _esp32Service.setSensitivity(device.id, sensitivity);
                   }
-                  ScaffoldMessenger.of(context).showSnackBar(
+                  if (!mounted) return;
+                  ScaffoldMessenger.of(this.context).showSnackBar(
                     SnackBar(
-                      content: Text('Sensitivity set to ${sensitivity.toStringAsFixed(1)}x'),
+                      content: Text(
+                          'Sensitivity set to ${sensitivity.toStringAsFixed(1)}x'),
                       backgroundColor: AppTheme.success,
                     ),
                   );
@@ -1210,11 +1275,11 @@ class _ESP32ManagementScreenState extends State<ESP32ManagementScreen> {
 
   void _showSensorConfigDialog() {
     Navigator.pop(context); // Close settings dialog
-    
+
     showDialog(
       context: context,
       builder: (context) {
-        Map<String, bool> sensorConfig = {
+        final Map<String, bool> sensorConfig = {
           'accelerometer': true,
           'gyroscope': true,
           'gps': true,
@@ -1222,7 +1287,7 @@ class _ESP32ManagementScreenState extends State<ESP32ManagementScreen> {
           'humidity': false,
           'pressure': false,
         };
-        
+
         return StatefulBuilder(
           builder: (context, setState) => AlertDialog(
             title: const Text('Sensor Configuration'),
@@ -1252,9 +1317,11 @@ class _ESP32ManagementScreenState extends State<ESP32ManagementScreen> {
                 onPressed: () async {
                   Navigator.pop(context);
                   for (final device in _devices) {
-                    await _esp32Service.configureSensors(device.id, sensorConfig);
+                    await _esp32Service.configureSensors(
+                        device.id, sensorConfig);
                   }
-                  ScaffoldMessenger.of(context).showSnackBar(
+                  if (!mounted) return;
+                  ScaffoldMessenger.of(this.context).showSnackBar(
                     const SnackBar(
                       content: Text('Sensor configuration updated'),
                       backgroundColor: AppTheme.success,
@@ -1287,8 +1354,8 @@ class _ESP32ManagementScreenState extends State<ESP32ManagementScreen> {
                 child: Text(
                   'Real-time Sensor Visualization',
                   style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                    fontWeight: FontWeight.w600,
-                  ),
+                        fontWeight: FontWeight.w600,
+                      ),
                   overflow: TextOverflow.ellipsis,
                 ),
               ),
@@ -1297,7 +1364,9 @@ class _ESP32ManagementScreenState extends State<ESP32ManagementScreen> {
                 width: 12,
                 height: 12,
                 decoration: BoxDecoration(
-                  color: _isDataCollectionActive ? AppTheme.success : AppTheme.error,
+                  color: _isDataCollectionActive
+                      ? AppTheme.success
+                      : AppTheme.error,
                   shape: BoxShape.circle,
                 ),
               ),
@@ -1305,19 +1374,21 @@ class _ESP32ManagementScreenState extends State<ESP32ManagementScreen> {
               Text(
                 _isDataCollectionActive ? 'Live' : 'Paused',
                 style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                  color: _isDataCollectionActive ? AppTheme.success : AppTheme.error,
-                  fontWeight: FontWeight.w600,
-                ),
+                      color: _isDataCollectionActive
+                          ? AppTheme.success
+                          : AppTheme.error,
+                      fontWeight: FontWeight.w600,
+                    ),
               ),
             ],
           ),
           const SizedBox(height: 16),
-          
+
           // Acceleration Visualization
           _buildAccelerationVisualization(),
-          
+
           const SizedBox(height: 16),
-          
+
           // GPS and Speed Info
           Row(
             children: [
@@ -1340,9 +1411,9 @@ class _ESP32ManagementScreenState extends State<ESP32ManagementScreen> {
               ),
             ],
           ),
-          
+
           const SizedBox(height: 16),
-          
+
           // Additional Sensors
           if (_latestData!.additionalSensors.isNotEmpty)
             _buildAdditionalSensorsGrid(),
@@ -1356,7 +1427,7 @@ class _ESP32ManagementScreenState extends State<ESP32ManagementScreen> {
     final xPercent = (_latestData!.accelerationX.abs() / maxG).clamp(0.0, 1.0);
     final yPercent = (_latestData!.accelerationY.abs() / maxG).clamp(0.0, 1.0);
     final zPercent = (_latestData!.accelerationZ.abs() / maxG).clamp(0.0, 1.0);
-    
+
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -1369,37 +1440,43 @@ class _ESP32ManagementScreenState extends State<ESP32ManagementScreen> {
           Text(
             'Acceleration (G-Force)',
             style: Theme.of(context).textTheme.titleMedium?.copyWith(
-              fontWeight: FontWeight.w600,
-            ),
+                  fontWeight: FontWeight.w600,
+                ),
           ),
           const SizedBox(height: 12),
-          
+
           // X-Axis
-          _buildAccelerationBar('X-Axis', _latestData!.accelerationX, xPercent, Colors.red),
+          _buildAccelerationBar(
+              'X-Axis', _latestData!.accelerationX, xPercent, Colors.red),
           const SizedBox(height: 8),
-          
+
           // Y-Axis
-          _buildAccelerationBar('Y-Axis', _latestData!.accelerationY, yPercent, Colors.green),
+          _buildAccelerationBar(
+              'Y-Axis', _latestData!.accelerationY, yPercent, Colors.green),
           const SizedBox(height: 8),
-          
+
           // Z-Axis
-          _buildAccelerationBar('Z-Axis', _latestData!.accelerationZ, zPercent, Colors.blue),
+          _buildAccelerationBar(
+              'Z-Axis', _latestData!.accelerationZ, zPercent, Colors.blue),
           const SizedBox(height: 12),
-          
+
           // Total Acceleration
           Row(
             children: [
               Text(
                 'Total: ${_latestData!.totalAcceleration.toStringAsFixed(2)}G',
                 style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                  fontWeight: FontWeight.bold,
-                  color: _latestData!.totalAcceleration > 3.0 ? AppTheme.error : AppTheme.success,
-                ),
+                      fontWeight: FontWeight.bold,
+                      color: _latestData!.totalAcceleration > 3.0
+                          ? AppTheme.error
+                          : AppTheme.success,
+                    ),
               ),
               const Spacer(),
               if (_latestData!.exceedsAccidentThreshold)
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                   decoration: BoxDecoration(
                     color: AppTheme.error,
                     borderRadius: BorderRadius.circular(8),
@@ -1407,9 +1484,9 @@ class _ESP32ManagementScreenState extends State<ESP32ManagementScreen> {
                   child: Text(
                     'ALERT',
                     style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                      color: Colors.white,
-                      fontWeight: FontWeight.bold,
-                    ),
+                          color: Colors.white,
+                          fontWeight: FontWeight.bold,
+                        ),
                   ),
                 ),
             ],
@@ -1419,7 +1496,8 @@ class _ESP32ManagementScreenState extends State<ESP32ManagementScreen> {
     );
   }
 
-  Widget _buildAccelerationBar(String label, double value, double percent, Color color) {
+  Widget _buildAccelerationBar(
+      String label, double value, double percent, Color color) {
     return Row(
       children: [
         SizedBox(
@@ -1454,9 +1532,9 @@ class _ESP32ManagementScreenState extends State<ESP32ManagementScreen> {
           child: Text(
             '${value.toStringAsFixed(2)}G',
             style: Theme.of(context).textTheme.bodySmall?.copyWith(
-              fontWeight: FontWeight.w600,
-              color: color,
-            ),
+                  fontWeight: FontWeight.w600,
+                  color: color,
+                ),
             textAlign: TextAlign.right,
           ),
         ),
@@ -1464,7 +1542,8 @@ class _ESP32ManagementScreenState extends State<ESP32ManagementScreen> {
     );
   }
 
-  Widget _buildInfoTile(String title, String value, IconData icon, Color color) {
+  Widget _buildInfoTile(
+      String title, String value, IconData icon, Color color) {
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
@@ -1482,9 +1561,9 @@ class _ESP32ManagementScreenState extends State<ESP32ManagementScreen> {
                 child: Text(
                   title,
                   style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: color,
-                    fontWeight: FontWeight.w600,
-                  ),
+                        color: color,
+                        fontWeight: FontWeight.w600,
+                      ),
                 ),
               ),
             ],
@@ -1493,8 +1572,8 @@ class _ESP32ManagementScreenState extends State<ESP32ManagementScreen> {
           Text(
             value,
             style: Theme.of(context).textTheme.bodySmall?.copyWith(
-              fontWeight: FontWeight.w500,
-            ),
+                  fontWeight: FontWeight.w500,
+                ),
             maxLines: 2,
             overflow: TextOverflow.ellipsis,
           ),
@@ -1505,36 +1584,38 @@ class _ESP32ManagementScreenState extends State<ESP32ManagementScreen> {
 
   Widget _buildAdditionalSensorsGrid() {
     final sensors = _latestData!.additionalSensors;
-    
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
           'Additional Sensors',
           style: Theme.of(context).textTheme.titleMedium?.copyWith(
-            fontWeight: FontWeight.w600,
-          ),
+                fontWeight: FontWeight.w600,
+              ),
         ),
         const SizedBox(height: 12),
-        
         Column(
           children: [
             for (int i = 0; i < sensors.length; i += 2)
               Padding(
-                padding: EdgeInsets.only(bottom: i + 2 < sensors.length ? 12 : 0),
+                padding:
+                    EdgeInsets.only(bottom: i + 2 < sensors.length ? 12 : 0),
                 child: Row(
                   children: [
-                    Expanded(child: _buildSensorTile(
+                    Expanded(
+                        child: _buildSensorTile(
                       sensors.entries.elementAt(i).key,
                       sensors.entries.elementAt(i).value,
                     )),
                     const SizedBox(width: 12),
-                    Expanded(child: i + 1 < sensors.length
-                      ? _buildSensorTile(
-                          sensors.entries.elementAt(i + 1).key,
-                          sensors.entries.elementAt(i + 1).value,
-                        )
-                      : const SizedBox()),
+                    Expanded(
+                        child: i + 1 < sensors.length
+                            ? _buildSensorTile(
+                                sensors.entries.elementAt(i + 1).key,
+                                sensors.entries.elementAt(i + 1).value,
+                              )
+                            : const SizedBox()),
                   ],
                 ),
               ),
@@ -1547,7 +1628,7 @@ class _ESP32ManagementScreenState extends State<ESP32ManagementScreen> {
   Widget _buildSensorTile(String sensorName, dynamic value) {
     String displayValue;
     String unit = '';
-    
+
     switch (sensorName.toLowerCase()) {
       case 'temperature':
         displayValue = '${value.toStringAsFixed(1)}';
@@ -1568,7 +1649,7 @@ class _ESP32ManagementScreenState extends State<ESP32ManagementScreen> {
       default:
         displayValue = value.toString();
     }
-    
+
     return Container(
       padding: const EdgeInsets.all(8),
       decoration: BoxDecoration(
@@ -1582,8 +1663,11 @@ class _ESP32ManagementScreenState extends State<ESP32ManagementScreen> {
           Text(
             sensorName.replaceAll('_', ' ').toUpperCase(),
             style: Theme.of(context).textTheme.bodySmall?.copyWith(
-              color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.7),
-            ),
+                  color: Theme.of(context)
+                      .colorScheme
+                      .onSurface
+                      .withValues(alpha: 0.7),
+                ),
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
           ),
@@ -1591,9 +1675,9 @@ class _ESP32ManagementScreenState extends State<ESP32ManagementScreen> {
           Text(
             '$displayValue$unit',
             style: Theme.of(context).textTheme.titleSmall?.copyWith(
-              fontWeight: FontWeight.bold,
-              color: AppTheme.accent,
-            ),
+                  fontWeight: FontWeight.bold,
+                  color: AppTheme.accent,
+                ),
           ),
         ],
       ),

@@ -1,4 +1,6 @@
 #include <WiFi.h>
+#include <HTTPClient.h>
+#include <WiFiClientSecure.h>
 
 #include <WebServer.h>
 #include <ArduinoJson.h>
@@ -18,6 +20,17 @@ const char* firmwareVersion = "1.2.2";
 const char* AP_SSID = "SMART-AMBULANCE-001";
 const char* AP_PASSWORD = "setup123";
 // When in AP mode, ESP32 IP is always 192.168.4.1
+
+// ============== Phone Hotspot / Cloud Upload ==============
+// For road-data collection, the ESP32 connects directly to this phone hotspot.
+const char* WIFI_SSID = "realme NARZO 70 Turbo 5G";
+const char* WIFI_PASSWORD = "123456789";
+
+// Firebase Realtime Database REST endpoint. This requires database rules that
+// allow writes to /esp32_sensor_data/ESP32-ACCIDENT-001.
+const char* CLOUD_UPLOAD_URL =
+  "https://emergency-ambulance-94d91-default-rtdb.asia-southeast1.firebasedatabase.app/esp32_sensor_data/ESP32-ACCIDENT-001.json";
+#define CLOUD_UPLOAD_INTERVAL 5000
 
 // ============== Pin Definitions ==============
 #define MPU_SDA 21
@@ -90,22 +103,13 @@ void setup() {
   initializeSensors();
   displayWelcome();
 
-  // Load saved WiFi credentials from NVS
-  loadWiFiCredentials();
+  // For road-data collection, skip manual provisioning and connect directly
+  // to the phone hotspot configured above.
+  connectToWiFi(WIFI_SSID, WIFI_PASSWORD);
 
-  if (savedSSID.length() > 0) {
-    // We have saved credentials — try to connect
-    Serial.println("Saved WiFi found: " + savedSSID);
-    connectToWiFi(savedSSID.c_str(), savedPassword.c_str());
-
-    if (WiFi.status() != WL_CONNECTED) {
-      // Saved WiFi failed (hotspot off?) — fall back to AP mode
-      Serial.println("Could not connect to saved WiFi. Starting AP mode.");
-      startAPMode();
-    }
-  } else {
-    // No saved credentials — start AP mode for first-time setup
-    Serial.println("No saved WiFi. Starting AP mode for setup.");
+  if (WiFi.status() != WL_CONNECTED) {
+    // Keep AP mode as a fallback so the board is still reachable for debugging.
+    Serial.println("Phone hotspot not reachable. Starting AP mode for debug.");
     startAPMode();
   }
 
@@ -142,6 +146,14 @@ void loop() {
   if (millis() - lastDisplay > 500) {
     updateDisplay();
     lastDisplay = millis();
+  }
+
+  // Upload latest sensor packet to Firebase every few seconds when online.
+  static unsigned long lastCloudUpload = 0;
+  if (!isAPMode && WiFi.status() == WL_CONNECTED &&
+      millis() - lastCloudUpload >= CLOUD_UPLOAD_INTERVAL) {
+    postSensorDataToCloud();
+    lastCloudUpload = millis();
   }
 }
 
@@ -217,7 +229,7 @@ void initializeSensors() {
   mpu.initialize();
   if (mpu.testConnection()) {
     Serial.println("OK");
-    mpu.setFullScaleAccelRange(MPU6050_ACCEL_FS_4);  // ±4G range, divisor 8192
+    mpu.setFullScaleAccelRange(MPU6050_ACCEL_FS_2);  // +/-2G range, divisor 16384
   } else {
     Serial.println("FAILED");
   }
@@ -342,6 +354,62 @@ void handleSensors() {
   server.send(200, "application/json", output);
 }
 
+void buildSensorJson(StaticJsonDocument<1024>& doc) {
+  doc["device_id"] = deviceId;
+  doc["name"] = deviceName;
+  doc["firmware"] = firmwareVersion;
+  doc["accel_x"] = sensorData.accelX;
+  doc["accel_y"] = sensorData.accelY;
+  doc["accel_z"] = sensorData.accelZ;
+  doc["total_accel"] = sensorData.totalAccel;
+  doc["impact"] = sensorData.totalAccel;
+  doc["mq135_digital"] = sensorData.mq135Digital;
+  doc["mq135_analog"] = sensorData.mq135Analog;
+  doc["mq135_ppm"] = sensorData.mq135PPM;
+  doc["temperature"] = sensorData.temperature;
+  doc["humidity"] = sensorData.humidity;
+  doc["battery_voltage"] = getBatteryVoltage();
+  doc["battery"] = getBatteryLevel();
+  doc["rssi"] = WiFi.RSSI();
+  doc["ip_address"] = WiFi.localIP().toString();
+  doc["timestamp_ms"] = sensorData.timestamp;
+  doc["uploaded_at_ms"] = millis();
+  doc["source"] = "esp32_firmware";
+}
+
+void postSensorDataToCloud() {
+  if (strlen(CLOUD_UPLOAD_URL) == 0) {
+    return;
+  }
+
+  WiFiClientSecure client;
+  client.setInsecure();
+
+  HTTPClient http;
+  if (!http.begin(client, CLOUD_UPLOAD_URL)) {
+    Serial.println("Cloud upload: failed to start HTTP client");
+    return;
+  }
+
+  StaticJsonDocument<1024> doc;
+  buildSensorJson(doc);
+
+  String payload;
+  serializeJson(doc, payload);
+
+  http.addHeader("Content-Type", "application/json");
+  int statusCode = http.POST(payload);
+
+  Serial.print("Cloud upload status: ");
+  Serial.println(statusCode);
+  if (statusCode <= 0 || statusCode >= 300) {
+    Serial.print("Cloud upload response: ");
+    Serial.println(http.getString());
+  }
+
+  http.end();
+}
+
 // ============== WiFi Setup Endpoint ==============
 // POST /wifi  body: {"ssid":"YourHotspot","password":"YourPass"}
 void handleWiFiSetup() {
@@ -441,7 +509,7 @@ void handleNotFound() {
 void readAllSensors() {
   int16_t ax, ay, az;
   mpu.getAcceleration(&ax, &ay, &az);
-  sensorData.accelX = ax / 16384.0;  // ±2G range (default): 16384 LSB/g
+  sensorData.accelX = ax / 16384.0;  // +/-2G default range: 16384 LSB/g
   sensorData.accelY = ay / 16384.0;
   sensorData.accelZ = az / 16384.0;
   sensorData.totalAccel = sqrt(
@@ -454,10 +522,14 @@ void readAllSensors() {
   sensorData.mq135Analog = analogRead(MQ135_ANALOG_PIN);
   sensorData.mq135PPM = calculateMQ135PPM(sensorData.mq135Analog);
 
-  sensorData.temperature = dht.readTemperature();
-  sensorData.humidity = dht.readHumidity();
-  if (isnan(sensorData.temperature)) sensorData.temperature = 0.0;
-  if (isnan(sensorData.humidity)) sensorData.humidity = 0.0;
+  static unsigned long lastDhtRead = 0;
+  if (millis() - lastDhtRead > 2000) {
+    float temperature = dht.readTemperature();
+    float humidity = dht.readHumidity();
+    if (!isnan(temperature)) sensorData.temperature = temperature;
+    if (!isnan(humidity)) sensorData.humidity = humidity;
+    lastDhtRead = millis();
+  }
 
   sensorData.rssi = isAPMode ? 0 : WiFi.RSSI();
   sensorData.batteryLevel = getBatteryLevel();
@@ -469,23 +541,31 @@ void calibrateMQ135() {
   Serial.println("Calibrating MQ-135 in clean air...");
   delay(2000);
   float sum = 0;
+  int validSamples = 0;
   for (int i = 0; i < 50; i++) {
     int raw = analogRead(MQ135_ANALOG_PIN);
     float voltage = raw * (3.3 / 4095.0);
+    if (voltage <= 0.01) {
+      continue;
+    }
     float RS = (3.3 - voltage) / voltage * 10.0;
     sum += RS;
+    validSamples++;
     delay(100);
   }
-  mq135_R0 = sum / 50.0 / 3.6;
+  if (validSamples > 0) {
+    mq135_R0 = sum / validSamples / 3.6;
+  }
   Serial.print("Calibration complete! R0 = ");
   Serial.println(mq135_R0);
 }
 
 float calculateMQ135PPM(int rawValue) {
   float voltage = rawValue * (3.3 / 4095.0);
-  if (voltage == 0) return 0;
+  if (voltage <= 0.01 || voltage >= 3.29) return 0;
   float RS = (3.3 - voltage) / voltage * 10.0;
   float ratio = RS / mq135_R0;
+  if (ratio <= 0) return 0;
   float ppm = 116.6020682 * pow(ratio, -2.769034857);
   return ppm;
 }

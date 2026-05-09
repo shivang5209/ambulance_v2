@@ -1,49 +1,42 @@
 {
   "project_info": {
-    "project_number": "356551092682",
-    "project_id": "emergency-ambulance-94d91",
-    "storage_bucket": "emergency-ambulance-94d91.firebasestorage.app"
+    "project_number": "38653819224",
+    "project_id": "ambulancetflite",
+    "storage_bucket": "ambulancetflite.firebasestorage.app"
   },
   "client": [
     {
       "client_info": {
-        "mobilesdk_app_id": "1:356551092682:android:139adca1b239cb4579c733",
+        "mobilesdk_app_id": "1:38653819224:android:2800f9a987f79b7c7e8d2d",
         "android_client_info": {
-          "package_name": "com.example.stable_ambulance_app"
+          "package_name": "com.rapidaid.ambulance_tflite"
         }
       },
       "oauth_client": [
         {
-          "client_id": "356551092682-a6ckrocmulpjgh07f66vpa6phvip2oa1.apps.googleusercontent.com",
+          "client_id": "38653819224-8tgfgnj3tlah0r7cdp48fucc13i9fut1.apps.googleusercontent.com",
           "client_type": 1,
           "android_info": {
-            "package_name": "com.example.stable_ambulance_app",
+            "package_name": "com.rapidaid.ambulance_tflite",
             "certificate_hash": "be7288d10cfcc3912ead33c99818bb0fd5d1bac2"
           }
         },
         {
-          "client_id": "356551092682-1taoqb454bmacsa0oi1dt3302umvufim.apps.googleusercontent.com",
+          "client_id": "38653819224-5e44vo381u9ako0o350dnbp04g3rldu4.apps.googleusercontent.com",
           "client_type": 3
         }
       ],
       "api_key": [
         {
-          "current_key": "AIzaSyDgvrqNuACd6I2ywZpd_QguWFjOiCZGIj8"
+          "current_key": "AIzaSyCiLGeyZuGVp1n0oj7qk1oCMJ3hBxZ-q2I"
         }
       ],
       "services": {
         "appinvite_service": {
           "other_platform_oauth_client": [
             {
-              "client_id": "356551092682-1taoqb454bmacsa0oi1dt3302umvufim.apps.googleusercontent.com",
+              "client_id": "38653819224-5e44vo381u9ako0o350dnbp04g3rldu4.apps.googleusercontent.com",
               "client_type": 3
-            },
-            {
-              "client_id": "356551092682-jlgg973s5rt09j1in7v774asvfi6hn0n.apps.googleusercontent.com",
-              "client_type": 2,
-              "ios_info": {
-                "bundle_id": "com.example.ambulanceServiceRespond"
-              }
             }
           ]
         }

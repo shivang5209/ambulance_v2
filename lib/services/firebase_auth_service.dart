@@ -3,6 +3,7 @@
 // Then update login_screen.dart to use this instead of MockAuthService
 
 import 'package:firebase_auth/firebase_auth.dart' as firebase_auth;
+import 'package:firebase_core/firebase_core.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:google_sign_in/google_sign_in.dart';
@@ -55,6 +56,9 @@ class FirebaseAuthService {
       });
     } on firebase_auth.FirebaseAuthException catch (e) {
       throw AuthException(_handleAuthError(e));
+    } on FirebaseException catch (e) {
+      await _signOutSilently();
+      throw AuthException(_handleFirestoreError(e));
     } catch (e) {
       throw AuthException('Login failed: $e');
     }
@@ -116,6 +120,9 @@ class FirebaseAuthService {
       }
     } on firebase_auth.FirebaseAuthException catch (e) {
       throw AuthException(_handleAuthError(e));
+    } on FirebaseException catch (e) {
+      await _signOutSilently();
+      throw AuthException(_handleFirestoreError(e));
     } catch (e) {
       if (e is AuthException) rethrow;
       throw AuthException('Google sign-in failed: $e');
@@ -139,7 +146,7 @@ class FirebaseAuthService {
         firstName: nameParts.isNotEmpty ? nameParts.first : null,
         lastName: nameParts.length > 1 ? nameParts.sublist(1).join(' ') : null,
         role: role,
-        preferences: {},
+        preferences: const {},
         isActive: true,
         createdAt: now,
         updatedAt: now,
@@ -153,6 +160,7 @@ class FirebaseAuthService {
       return user;
     } catch (e) {
       if (e is AuthException) rethrow;
+      await _signOutSilently();
       throw AuthException('Failed to complete registration: $e');
     }
   }
@@ -191,7 +199,7 @@ class FirebaseAuthService {
         lastName: lastName?.trim(),
         role: role,
         hospitalId: hospitalId,
-        preferences: {},
+        preferences: const {},
         isActive: true,
         createdAt: now,
         updatedAt: now,
@@ -214,6 +222,9 @@ class FirebaseAuthService {
       return user;
     } on firebase_auth.FirebaseAuthException catch (e) {
       throw AuthException(_handleAuthError(e));
+    } on FirebaseException catch (e) {
+      await _signOutSilently();
+      throw AuthException(_handleFirestoreError(e));
     } catch (e) {
       throw AuthException('Registration failed: $e');
     }
@@ -483,6 +494,33 @@ class FirebaseAuthService {
         return 'Please log in again to perform this action';
       default:
         return 'Authentication error: ${e.message ?? e.code}';
+    }
+  }
+
+  String _handleFirestoreError(FirebaseException e) {
+    switch (e.code) {
+      case 'failed-precondition':
+        return 'Cloud Firestore is not set up yet. Create the Firestore database in Firebase Console and try again.';
+      case 'permission-denied':
+        return 'Cloud Firestore access was denied. Check your Firestore security rules.';
+      case 'unavailable':
+        return 'Cloud Firestore is unavailable right now. Check your network connection and make sure Firestore is enabled for this Firebase project.';
+      default:
+        return 'Database error: ${e.message ?? e.code}';
+    }
+  }
+
+  Future<void> _signOutSilently() async {
+    try {
+      await GoogleSignIn().signOut();
+    } catch (_) {
+      // Best-effort cleanup only.
+    }
+
+    try {
+      await _auth.signOut();
+    } catch (_) {
+      // Best-effort cleanup only.
     }
   }
 

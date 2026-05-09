@@ -47,24 +47,22 @@ class DefaultFirebaseOptions {
   }
 
   static const FirebaseOptions web = FirebaseOptions(
-    apiKey: 'AIzaSyDjCRr41OU_3ZYkwmlxev0NyWTDLmIM6h4',
-    appId: '1:356551092682:web:6e62d1cc23ee691c79c733',
-    messagingSenderId: '356551092682',
-    projectId: 'emergency-ambulance-94d91',
-    authDomain: 'emergency-ambulance-94d91.firebaseapp.com',
-    storageBucket: 'emergency-ambulance-94d91.firebasestorage.app',
-    measurementId: 'G-9FHK590KWC',
-    databaseURL: 'https://emergency-ambulance-94d91-default-rtdb.asia-southeast1.firebasedatabase.app',
+    apiKey: 'AIzaSyDE8LpX3UEK00FdzqSzuKQRm7G0aA0vYto',
+    appId: '1:38653819224:web:300a6c25803800897e8d2d',
+    messagingSenderId: '38653819224',
+    projectId: 'ambulancetflite',
+    authDomain: 'ambulancetflite.firebaseapp.com',
+    storageBucket: 'ambulancetflite.firebasestorage.app',
+    measurementId: 'G-KRJH2WR2CS',
   );
 
 
   static const FirebaseOptions android = FirebaseOptions(
-    apiKey: 'AIzaSyDgvrqNuACd6I2ywZpd_QguWFjOiCZGIj8',
-    appId: '1:356551092682:android:0b6664f91b9ec87b79c733',
-    messagingSenderId: '356551092682',
-    projectId: 'emergency-ambulance-94d91',
-    storageBucket: 'emergency-ambulance-94d91.firebasestorage.app',
-    databaseURL: 'https://emergency-ambulance-94d91-default-rtdb.asia-southeast1.firebasedatabase.app',
+    apiKey: 'AIzaSyCiLGeyZuGVp1n0oj7qk1oCMJ3hBxZ-q2I',
+    appId: '1:38653819224:android:2800f9a987f79b7c7e8d2d',
+    messagingSenderId: '38653819224',
+    projectId: 'ambulancetflite',
+    storageBucket: 'ambulancetflite.firebasestorage.app',
   );
 
   static const FirebaseOptions ios = FirebaseOptions(

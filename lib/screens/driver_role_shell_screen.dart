@@ -21,6 +21,7 @@ import '../widgets/hotspot_warning_banner.dart';
 import '../widgets/max_width_container.dart';
 import '../widgets/ops_ui.dart';
 import 'initial_login_screen.dart';
+import 'ride_test_screen.dart';
 import 'role_home_shell.dart';
 import 'role_selection_screen.dart';
 
@@ -233,6 +234,12 @@ class _DriverRoleShellScreenState extends State<DriverRoleShellScreen> {
     );
   }
 
+  void _openRideTest() {
+    Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => const RideTestScreen()),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final params = _params;
@@ -243,6 +250,13 @@ class _DriverRoleShellScreenState extends State<DriverRoleShellScreen> {
     return RoleShellScaffold(
       title: 'Driver Ops',
       subtitle: 'ML-assisted vehicle shell',
+      actions: [
+        IconButton.filledTonal(
+          onPressed: _openRideTest,
+          icon: const Icon(Icons.route_rounded),
+          tooltip: 'Ride Test',
+        ),
+      ],
       tabs: [
         RoleShellTab(
           label: 'Dashboard',
@@ -838,6 +852,12 @@ class _DriverRoleShellScreenState extends State<DriverRoleShellScreen> {
                 icon: Icons.swap_horiz_rounded,
                 tone: AppColors.warning,
                 onTap: _switchRole,
+              ),
+              OpsActionButton(
+                label: 'Ride test',
+                icon: Icons.route_rounded,
+                tone: AppColors.accent,
+                onTap: _openRideTest,
               ),
               OpsActionButton(
                 label: 'Log out',

@@ -76,17 +76,17 @@ class _SplashScreenNewState extends State<SplashScreenNew> {
             ],
           ),
         ),
-        child: Center(
+        child: const Center(
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              const Icon(
+              Icon(
                 Icons.local_hospital,
                 size: 100,
                 color: Colors.white,
               ),
-              const SizedBox(height: 24),
-              const Text(
+              SizedBox(height: 24),
+              Text(
                 'RapidAid',
                 style: TextStyle(
                   fontSize: 28,
@@ -94,16 +94,16 @@ class _SplashScreenNewState extends State<SplashScreenNew> {
                   color: Colors.white,
                 ),
               ),
-              const SizedBox(height: 8),
-              const Text(
+              SizedBox(height: 8),
+              Text(
                 'Emergency Response System',
                 style: TextStyle(
                   fontSize: 16,
                   color: Colors.white70,
                 ),
               ),
-              const SizedBox(height: 48),
-              const CircularProgressIndicator(
+              SizedBox(height: 48),
+              CircularProgressIndicator(
                 valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
               ),
             ],

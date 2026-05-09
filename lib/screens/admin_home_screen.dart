@@ -7,6 +7,7 @@ import '../services/esp32_simulator.dart';
 import '../models/vehicle_parameters.dart';
 import 'esp32_management_screen.dart';
 import 'initial_login_screen.dart';
+import 'ride_test_screen.dart';
 import 'role_selection_screen.dart';
 import '../providers/auth_provider.dart';
 
@@ -87,8 +88,7 @@ class _AdminHomeScreenState extends State<AdminHomeScreen>
 
   void _showConnectDialog() {
     final ipController = TextEditingController();
-    final deviceIdController =
-        TextEditingController(text: _kDefaultDeviceId);
+    final deviceIdController = TextEditingController(text: _kDefaultDeviceId);
     bool isConnecting = false;
     String? error;
 
@@ -117,8 +117,8 @@ class _AdminHomeScreenState extends State<AdminHomeScreen>
               const SizedBox(height: 12),
               TextField(
                 controller: ipController,
-                keyboardType: const TextInputType.numberWithOptions(
-                    decimal: true),
+                keyboardType:
+                    const TextInputType.numberWithOptions(decimal: true),
                 decoration: const InputDecoration(
                   labelText: 'IP Address',
                   hintText: '192.168.43.xxx',
@@ -130,8 +130,7 @@ class _AdminHomeScreenState extends State<AdminHomeScreen>
                 const SizedBox(height: 10),
                 Text(
                   error!,
-                  style: const TextStyle(
-                      color: AppTheme.error, fontSize: 12),
+                  style: const TextStyle(color: AppTheme.error, fontSize: 12),
                 ),
               ],
             ],
@@ -169,8 +168,7 @@ class _AdminHomeScreenState extends State<AdminHomeScreen>
                         isConnecting = true;
                         error = null;
                       });
-                      final ok =
-                          await _esp32Service.connectToDevice(id, ip);
+                      final ok = await _esp32Service.connectToDevice(id, ip);
                       if (ok) {
                         if (ctx.mounted) Navigator.pop(ctx);
                         if (mounted) setState(() {});
@@ -192,10 +190,9 @@ class _AdminHomeScreenState extends State<AdminHomeScreen>
   bool get _isConnected =>
       _esp32Service.connectedDevices.isNotEmpty || _isDemoMode;
 
-  ESP32Device? get _connectedDevice =>
-      _esp32Service.connectedDevices.isNotEmpty
-          ? _esp32Service.connectedDevices.first
-          : null;
+  ESP32Device? get _connectedDevice => _esp32Service.connectedDevices.isNotEmpty
+      ? _esp32Service.connectedDevices.first
+      : null;
 
   bool get _accidentDetected =>
       _latestData != null &&
@@ -223,6 +220,18 @@ class _AdminHomeScreenState extends State<AdminHomeScreen>
       appBar: AppBar(
         title: const Text('System Admin'),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.route),
+            tooltip: 'Ride Test',
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => const RideTestScreen(),
+                ),
+              );
+            },
+          ),
           // Demo mode toggle
           IconButton(
             icon: Icon(
@@ -312,8 +321,7 @@ class _AdminHomeScreenState extends State<AdminHomeScreen>
                   children: [
                     Icon(Icons.logout, size: 20, color: AppTheme.error),
                     SizedBox(width: 12),
-                    Text('Log Out',
-                        style: TextStyle(color: AppTheme.error)),
+                    Text('Log Out', style: TextStyle(color: AppTheme.error)),
                   ],
                 ),
               ),
@@ -396,6 +404,19 @@ class _AdminHomeScreenState extends State<AdminHomeScreen>
               icon: const Icon(Icons.computer),
               label: const Text('Try Demo Mode'),
             ),
+            const SizedBox(height: 12),
+            OutlinedButton.icon(
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => const RideTestScreen(),
+                  ),
+                );
+              },
+              icon: const Icon(Icons.route),
+              label: const Text('Ride Test Recorder'),
+            ),
           ],
         ),
       ),
@@ -424,14 +445,16 @@ class _AdminHomeScreenState extends State<AdminHomeScreen>
           // Temp + Humidity row
           Row(
             children: [
-              Expanded(child: _buildEnvCard(
+              Expanded(
+                  child: _buildEnvCard(
                 'Temperature',
                 '${_getAdditional('temperature').toStringAsFixed(1)}°C',
                 Icons.thermostat,
                 AppTheme.emergencyResponse,
               )),
               const SizedBox(width: 12),
-              Expanded(child: _buildEnvCard(
+              Expanded(
+                  child: _buildEnvCard(
                 'Humidity',
                 '${_getAdditional('humidity').toStringAsFixed(0)}%',
                 Icons.water_drop,
@@ -467,7 +490,8 @@ class _AdminHomeScreenState extends State<AdminHomeScreen>
           margin: const EdgeInsets.only(bottom: 12),
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
           decoration: BoxDecoration(
-            color: AppTheme.error.withValues(alpha: _alertAnimation.value * 0.15),
+            color:
+                AppTheme.error.withValues(alpha: _alertAnimation.value * 0.15),
             borderRadius: BorderRadius.circular(12),
             border: Border.all(
               color: AppTheme.error.withValues(alpha: _alertAnimation.value),
@@ -477,7 +501,8 @@ class _AdminHomeScreenState extends State<AdminHomeScreen>
           child: Row(
             children: [
               Icon(Icons.warning_rounded,
-                  color: AppTheme.error.withValues(alpha: _alertAnimation.value),
+                  color:
+                      AppTheme.error.withValues(alpha: _alertAnimation.value),
                   size: 28),
               const SizedBox(width: 12),
               const Expanded(
@@ -691,8 +716,7 @@ class _AdminHomeScreenState extends State<AdminHomeScreen>
 
   // ─── Environment Cards ────────────────────────────────────────────────────
 
-  Widget _buildEnvCard(
-      String label, String value, IconData icon, Color color) {
+  Widget _buildEnvCard(String label, String value, IconData icon, Color color) {
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
@@ -755,7 +779,8 @@ class _AdminHomeScreenState extends State<AdminHomeScreen>
         children: [
           Row(
             children: [
-              Icon(Icons.air, color: isSafe ? AppTheme.success : AppTheme.error, size: 20),
+              Icon(Icons.air,
+                  color: isSafe ? AppTheme.success : AppTheme.error, size: 20),
               const SizedBox(width: 8),
               Text(
                 'AIR QUALITY',
@@ -769,7 +794,8 @@ class _AdminHomeScreenState extends State<AdminHomeScreen>
               ),
               const Spacer(),
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                 decoration: BoxDecoration(
                   color: isSafe
                       ? AppTheme.success.withValues(alpha: 0.12)
@@ -804,8 +830,8 @@ class _AdminHomeScreenState extends State<AdminHomeScreen>
             child: LinearProgressIndicator(
               value: barFraction,
               minHeight: 8,
-              backgroundColor:
-                  (isSafe ? AppTheme.success : AppTheme.error).withValues(alpha: 0.12),
+              backgroundColor: (isSafe ? AppTheme.success : AppTheme.error)
+                  .withValues(alpha: 0.12),
               valueColor: AlwaysStoppedAnimation<Color>(
                   isSafe ? AppTheme.success : AppTheme.error),
             ),
@@ -838,7 +864,8 @@ class _AdminHomeScreenState extends State<AdminHomeScreen>
               padding: const EdgeInsets.all(20),
               child: Row(
                 children: [
-                  const Icon(Icons.vibration, size: 20, color: AppTheme.monitoringActive),
+                  const Icon(Icons.vibration,
+                      size: 20, color: AppTheme.monitoringActive),
                   const SizedBox(width: 8),
                   Text(
                     'ACCELEROMETER',

@@ -119,7 +119,7 @@ class AmbulanceV2App extends StatelessWidget {
       ],
       child: Consumer<ThemeModeController>(
         builder: (context, themeController, _) => MaterialApp(
-          title: 'RapidAid v2',
+          title: 'rapidAid V2',
           debugShowCheckedModeBanner: false,
           theme: AppTheme.lightTheme(),
           darkTheme: AppTheme.darkTheme(),

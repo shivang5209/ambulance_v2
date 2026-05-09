@@ -74,7 +74,9 @@ class AccidentPrediction {
   /// Dominant class index: 0=normal, 1=near_miss, 2=accident.
   int get predictedClass {
     if (accidentProbability >= nearMissProbability &&
-        accidentProbability >= normalProbability) return 2;
+        accidentProbability >= normalProbability) {
+      return 2;
+    }
     if (nearMissProbability >= normalProbability) return 1;
     return 0;
   }
@@ -114,6 +116,6 @@ class AccidentPrediction {
 
   @override
   String toString() =>
-      'AccidentPrediction(class=$predictedClass, accident=${confidenceDisplay}, '
+      'AccidentPrediction(class=$predictedClass, accident=$confidenceDisplay, '
       'type=$accidentType, severity=$severityClass)';
 }

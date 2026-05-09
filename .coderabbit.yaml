@@ -1,0 +1,44 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+language: "en-US"
+reviews:
+  profile: "assertive"
+  high_level_summary: true
+  review_status: true
+  path_filters:
+    - "esp32/**"
+    - "raspberry_pi/**"
+    - "lib/services/esp32_service*.dart"
+    - "lib/services/ride_test_service*.dart"
+    - "lib/services/iot_data_orchestrator*.dart"
+    - "lib/screens/esp32_management_screen.dart"
+    - "lib/screens/ride_test_screen.dart"
+    - "lib/models/ride_test_session.dart"
+    - "lib/main.dart"
+    - "android/app/src/main/AndroidManifest.xml"
+    - "android/app/src/main/kotlin/com/rapidaid/ambulance_tflite/**"
+    - "!DATASET/**"
+    - "!Doc/**"
+    - "!build/**"
+    - "!third_party/**"
+    - "!raspberry_pi copy/**"
+    - "!**/*.csv"
+    - "!**/*.lock"
+  path_instructions:
+    - path: "esp32/**"
+      instructions: |
+        Focus on device-to-app communication reliability, JSON/API contract compatibility, sensor data validation, retry behavior, and unsafe blocking delays.
+    - path: "raspberry_pi/**"
+      instructions: |
+        Focus on hardware bridge reliability, dependency/runtime assumptions, serial or network failure handling, credential exposure, and compatibility with the Flutter app data contract.
+    - path: "lib/services/esp32_service*.dart"
+      instructions: |
+        Review the ESP32 connection lifecycle, discovery/connect/disconnect behavior, stream cleanup, token handling, timeout/retry behavior, and parsing of hardware telemetry.
+    - path: "lib/services/ride_test_service*.dart"
+      instructions: |
+        Review how live ESP32 telemetry is captured into ride test sessions, especially subscription cleanup, offline behavior, location permission handling, and persisted session consistency.
+    - path: "lib/screens/*esp32*"
+      instructions: |
+        Check whether UI actions correctly reflect hardware connection state and avoid duplicate scans, duplicate connections, stale devices, or unsafe service ownership.
+    - path: "lib/screens/ride_test_screen.dart"
+      instructions: |
+        Check whether ride-test controls enforce a valid connected-device state and handle data stream interruptions cleanly.
