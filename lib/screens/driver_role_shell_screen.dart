@@ -727,7 +727,7 @@ class _DriverRoleShellScreenState extends State<DriverRoleShellScreen> {
     final timeline = [
       _TimelineItem(
         title: _mlDetector.isLoaded
-            ? 'TFLite model loaded'
+            ? 'Model adapter active'
             : 'Rule fallback active',
         subtitle: _mlDetector.modelSource ?? 'bundled_asset',
         tone: _mlDetector.isLoaded ? AppColors.success : AppColors.warning,
@@ -759,7 +759,7 @@ class _DriverRoleShellScreenState extends State<DriverRoleShellScreen> {
       child: Column(
         children: [
           OpsSectionCard(
-            title: 'Sensor and model snapshot',
+            title: 'Sensor and data snapshot',
             subtitle: 'Latest window payload and derived context.',
             child: Column(
               children: [
@@ -790,7 +790,7 @@ class _DriverRoleShellScreenState extends State<DriverRoleShellScreen> {
           OpsSectionCard(
             title: 'Recent activity',
             subtitle:
-                'Operational timeline of model, telemetry, and hotspot state.',
+                'Operational timeline of data collection, telemetry, and hotspot state.',
             child: Column(
               children: [
                 for (final item in timeline) ...[
@@ -813,7 +813,8 @@ class _DriverRoleShellScreenState extends State<DriverRoleShellScreen> {
         children: [
           OpsSectionCard(
             title: 'Driver controls',
-            subtitle: 'Monitoring and model settings for the live ops shell.',
+            subtitle:
+                'Monitoring and data collection settings for the live ops shell.',
             child: Column(
               children: [
                 SwitchListTile.adaptive(
@@ -826,7 +827,7 @@ class _DriverRoleShellScreenState extends State<DriverRoleShellScreen> {
                   onChanged: (value) => setState(() => _isMonitoring = value),
                 ),
                 OpsInfoRow(
-                  label: 'Model source',
+                  label: 'Detection source',
                   value: _mlDetector.modelSource ?? 'unknown',
                 ),
                 OpsInfoRow(

@@ -14,7 +14,7 @@
 // ============== Device Info ==============
 const char* deviceId = "ESP32-ACCIDENT-001";
 const char* deviceName = "Accident Detection Unit 1";
-const char* firmwareVersion = "1.2.2";
+const char* firmwareVersion = "1.2.3";
 
 // ============== AP Mode Config (Setup Hotspot) ==============
 const char* AP_SSID = "SMART-AMBULANCE-001";
@@ -91,12 +91,25 @@ int currentScreen = 0;
 unsigned long lastScreenChange = 0;
 bool welcomeDone = false;
 
+enum RideDisplayState { RIDE_IDLE, RIDE_RECORDING, RIDE_COMPLETE };
+RideDisplayState rideDisplayState = RIDE_IDLE;
+String activeRideSessionId = "";
+String rideStartedAt = "";
+String rideStoppedAt = "";
+unsigned long rideStartedMillis = 0;
+unsigned long rideCompletedMillis = 0;
+unsigned long rideDurationSeconds = 0;
+unsigned long rideTotalSamples = 0;
+float rideLastSpeed = 0.0;
+float rideLastGForce = 0.0;
+bool rideUploadedToSupabase = false;
+
 // ============== Setup ==============
 void setup() {
   Serial.begin(115200);
   delay(1000);
   Serial.println("\n\n=================================");
-  Serial.println("Ambulance Response System v1.2.2");
+  Serial.println("Ambulance Response System v1.2.3");
   Serial.println("ESP32 Accident Detection");
   Serial.println("=================================\n");
 
@@ -270,6 +283,7 @@ void setupServerEndpoints() {
   server.on("/wifi", HTTP_POST, handleWiFiSetup);    // New: receive WiFi credentials
   server.on("/wifi", HTTP_GET, handleWiFiStatus);    // New: check current WiFi status
   server.on("/wifi/reset", HTTP_POST, handleWiFiReset); // New: clear saved WiFi
+  server.on("/ride", HTTP_POST, handleRideEvent); // App ride lifecycle events
   server.onNotFound(handleNotFound);
 
   // CORS headers for all responses (needed when app and ESP32 are on different subnets)
@@ -288,6 +302,7 @@ void handleRoot() {
   html += "<li><a href='/status'>/status</a></li>";
   html += "<li><a href='/sensors'>/sensors</a></li>";
   html += "<li><a href='/wifi'>/wifi</a> - WiFi status / POST to configure</li>";
+  html += "<li>POST /ride - ride_started / ride_progress / ride_finished</li>";
   html += "</ul></body></html>";
   server.send(200, "text/html", html);
 }
@@ -301,6 +316,9 @@ void handleInfo() {
   doc["mac_address"] = WiFi.macAddress();
   doc["rssi"] = isAPMode ? 0 : WiFi.RSSI();
   doc["mode"] = isAPMode ? "ap" : "sta";
+  doc["ride_state"] = rideDisplayState == RIDE_RECORDING ? "recording" : (rideDisplayState == RIDE_COMPLETE ? "complete" : "idle");
+  doc["ride_session_id"] = activeRideSessionId;
+  doc["ride_total_samples"] = rideTotalSamples;
   String output;
   serializeJson(doc, output);
   server.send(200, "application/json", output);
@@ -318,6 +336,9 @@ void handleStatus() {
   doc["free_heap"] = ESP.getFreeHeap();
   doc["sensors_ok"] = mpu.testConnection();
   doc["mode"] = isAPMode ? "ap" : "sta";
+  doc["ride_state"] = rideDisplayState == RIDE_RECORDING ? "recording" : (rideDisplayState == RIDE_COMPLETE ? "complete" : "idle");
+  doc["ride_session_id"] = activeRideSessionId;
+  doc["ride_total_samples"] = rideTotalSamples;
   String output;
   serializeJson(doc, output);
   server.send(200, "application/json", output);
@@ -448,6 +469,9 @@ void handleWiFiSetup() {
 void handleWiFiStatus() {
   StaticJsonDocument<256> doc;
   doc["mode"] = isAPMode ? "ap" : "sta";
+  doc["ride_state"] = rideDisplayState == RIDE_RECORDING ? "recording" : (rideDisplayState == RIDE_COMPLETE ? "complete" : "idle");
+  doc["ride_session_id"] = activeRideSessionId;
+  doc["ride_total_samples"] = rideTotalSamples;
   doc["connected"] = WiFi.status() == WL_CONNECTED;
   doc["saved_ssid"] = savedSSID;
   doc["ap_ssid"] = AP_SSID;
@@ -490,6 +514,61 @@ void handleSetConfig() {
   }
 }
 
+void handleRideEvent() {
+  if (!server.hasArg("plain")) {
+    server.send(400, "application/json", "{\"error\":\"No body\"}");
+    return;
+  }
+
+  StaticJsonDocument<512> doc;
+  DeserializationError error = deserializeJson(doc, server.arg("plain"));
+  if (error) {
+    server.send(400, "application/json", "{\"error\":\"Invalid JSON\"}");
+    return;
+  }
+
+  const char* eventType = doc["type"] | "";
+  const char* sessionId = doc["session_id"] | "";
+
+  if (strcmp(eventType, "ride_started") == 0) {
+    rideDisplayState = RIDE_RECORDING;
+    activeRideSessionId = String(sessionId);
+    rideStartedAt = String((const char*)(doc["started_at"] | ""));
+    rideStoppedAt = "";
+    rideStartedMillis = millis();
+    rideCompletedMillis = 0;
+    rideDurationSeconds = 0;
+    rideTotalSamples = 0;
+    rideLastSpeed = 0.0;
+    rideLastGForce = 0.0;
+    rideUploadedToSupabase = false;
+    Serial.print("Ride started: ");
+    Serial.println(activeRideSessionId);
+  } else if (strcmp(eventType, "ride_progress") == 0) {
+    rideDisplayState = RIDE_RECORDING;
+    activeRideSessionId = String(sessionId);
+    rideTotalSamples = doc["total_samples"] | rideTotalSamples;
+    rideDurationSeconds = doc["duration_seconds"] | rideDurationSeconds;
+    rideLastSpeed = doc["speed"] | rideLastSpeed;
+    rideLastGForce = doc["total_acceleration"] | rideLastGForce;
+  } else if (strcmp(eventType, "ride_finished") == 0) {
+    rideDisplayState = RIDE_COMPLETE;
+    activeRideSessionId = String(sessionId);
+    rideStoppedAt = String((const char*)(doc["stopped_at"] | ""));
+    rideDurationSeconds = doc["duration_seconds"] | rideDurationSeconds;
+    rideTotalSamples = doc["total_samples"] | rideTotalSamples;
+    rideUploadedToSupabase = doc["uploaded_to_supabase"] | false;
+    rideCompletedMillis = millis();
+    Serial.print("Ride finished: ");
+    Serial.println(activeRideSessionId);
+  } else {
+    server.send(400, "application/json", "{\"error\":\"Unknown ride event\"}");
+    return;
+  }
+
+  updateDisplay();
+  server.send(200, "application/json", "{\"status\":\"ok\"}");
+}
 void handleCalibrate() {
   calibrateMQ135();
   server.send(200, "application/json", "{\"status\":\"calibrated\"}");
@@ -601,7 +680,7 @@ void displayWelcome() {
   display.setCursor(10, 8);
   display.println("AMBULANCE RESPONSE");
   display.setCursor(30, 20);
-  display.println("SYSTEM v1.2.2");
+  display.println("SYSTEM v1.2.3");
   display.drawLine(10, 32, 118, 32, SSD1306_WHITE);
   display.setCursor(14, 38);
   display.println("Initializing...");
@@ -611,6 +690,18 @@ void displayWelcome() {
 }
 
 void updateDisplay() {
+  if (rideDisplayState == RIDE_RECORDING) {
+    drawRideRecording();
+    return;
+  }
+  if (rideDisplayState == RIDE_COMPLETE && millis() - rideCompletedMillis < 20000) {
+    drawRideComplete();
+    return;
+  }
+  if (rideDisplayState == RIDE_COMPLETE && millis() - rideCompletedMillis >= 20000) {
+    rideDisplayState = RIDE_IDLE;
+  }
+
   switch (currentScreen) {
     case 0: drawSystemInfo(); break;
     case 1: drawTempHumidity(); break;
@@ -619,6 +710,80 @@ void updateDisplay() {
   }
 }
 
+void drawRideRecording() {
+  display.clearDisplay();
+  display.drawRect(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT, SSD1306_WHITE);
+  display.fillRect(0, 0, SCREEN_WIDTH, 13, SSD1306_WHITE);
+  display.setTextColor(SSD1306_BLACK);
+  display.setTextSize(1);
+  display.setCursor(28, 3);
+  display.println("RIDE LIVE");
+  display.setTextColor(SSD1306_WHITE);
+
+  unsigned long elapsed = rideDurationSeconds;
+  if (elapsed == 0 && rideStartedMillis > 0) {
+    elapsed = (millis() - rideStartedMillis) / 1000;
+  }
+  unsigned long mins = elapsed / 60;
+  unsigned long secs = elapsed % 60;
+
+  display.setTextSize(2);
+  display.setCursor(7, 18);
+  if (mins < 10) display.print("0");
+  display.print(mins);
+  display.print(":");
+  if (secs < 10) display.print("0");
+  display.print(secs);
+
+  display.setTextSize(1);
+  display.setCursor(76, 18);
+  display.print("S:");
+  display.println(rideTotalSamples);
+  display.setCursor(76, 29);
+  display.print("V:");
+  display.print(rideLastSpeed, 0);
+  display.println("kmh");
+  display.setCursor(7, 42);
+  display.print("G ");
+  display.print(rideLastGForce, 2);
+  display.print("  GPS+ESP32");
+  display.setCursor(7, 53);
+  display.print("REC ");
+  int sessionPreviewLength = activeRideSessionId.length() > 8 ? 8 : activeRideSessionId.length();
+  display.print(activeRideSessionId.substring(0, sessionPreviewLength));
+  display.display();
+}
+
+void drawRideComplete() {
+  display.clearDisplay();
+  display.drawRect(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT, SSD1306_WHITE);
+  display.fillRect(0, 0, SCREEN_WIDTH, 13, SSD1306_WHITE);
+  display.setTextColor(SSD1306_BLACK);
+  display.setTextSize(1);
+  display.setCursor(22, 3);
+  display.println("RIDE SAVED");
+  display.setTextColor(SSD1306_WHITE);
+
+  unsigned long mins = rideDurationSeconds / 60;
+  unsigned long secs = rideDurationSeconds % 60;
+  display.setCursor(8, 18);
+  display.print("Duration: ");
+  if (mins < 10) display.print("0");
+  display.print(mins);
+  display.print(":");
+  if (secs < 10) display.print("0");
+  display.println(secs);
+
+  display.setCursor(8, 30);
+  display.print("Samples : ");
+  display.println(rideTotalSamples);
+  display.setCursor(8, 42);
+  display.print("Firebase: OK");
+  display.setCursor(8, 53);
+  display.print("Supabase: ");
+  display.println(rideUploadedToSupabase ? "OK" : "PENDING");
+  display.display();
+}
 void drawScreenHeader(const char* title) {
   display.fillRect(0, 0, SCREEN_WIDTH, 12, SSD1306_WHITE);
   display.setTextColor(SSD1306_BLACK);

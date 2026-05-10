@@ -19,6 +19,7 @@ class SupabaseConfig {
   static const String sensorReadingsTable = 'sensor_readings';
   static const String tripSummariesTable = 'trip_summaries';
   static const String crashEventsTable = 'crash_events';
+  static const String rideSessionExportsBucket = 'ride-session-exports';
 
   /// Flush the cold-path queue when it reaches this many records.
   static const int batchSizeThreshold = 50;

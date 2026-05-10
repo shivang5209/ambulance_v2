@@ -2,25 +2,23 @@ import 'dart:math';
 
 import 'vehicle_parameters.dart';
 
-enum RideTestSessionType {
-  rideTest,
-  slowRidingTest,
-}
+enum RideTestSessionType { rideTest, slowRidingTest }
 
-enum RideTestVehicleMode {
-  bike,
-  car,
-}
+enum RideTestVehicleMode { bike, car }
 
 class RideTestLocation {
   final double latitude;
   final double longitude;
   final double accuracy;
+  final double? speed;
+  final double? heading;
 
   const RideTestLocation({
     required this.latitude,
     required this.longitude,
     required this.accuracy,
+    this.speed,
+    this.heading,
   });
 
   factory RideTestLocation.fromGpsLocation(GpsLocation location) {
@@ -32,11 +30,7 @@ class RideTestLocation {
   }
 
   factory RideTestLocation.zero() {
-    return const RideTestLocation(
-      latitude: 0,
-      longitude: 0,
-      accuracy: 0,
-    );
+    return const RideTestLocation(latitude: 0, longitude: 0, accuracy: 0);
   }
 
   factory RideTestLocation.fromJson(Map<String, dynamic> json) {
@@ -44,6 +38,8 @@ class RideTestLocation {
       latitude: (json['latitude'] as num? ?? 0).toDouble(),
       longitude: (json['longitude'] as num? ?? 0).toDouble(),
       accuracy: (json['accuracy'] as num? ?? 0).toDouble(),
+      speed: (json['speed'] as num?)?.toDouble(),
+      heading: (json['heading'] as num?)?.toDouble(),
     );
   }
 
@@ -52,6 +48,8 @@ class RideTestLocation {
       'latitude': latitude,
       'longitude': longitude,
       'accuracy': accuracy,
+      'speed': speed,
+      'heading': heading,
     };
   }
 }
@@ -67,6 +65,12 @@ class RideTestSample {
   final double latitude;
   final double longitude;
   final double totalAcceleration;
+  final String source;
+  final String? deviceId;
+  final double gpsAccuracy;
+  final double? gpsSpeed;
+  final double? gpsHeading;
+  final Map<String, dynamic> rawPayload;
 
   const RideTestSample({
     required this.timestamp,
@@ -79,6 +83,12 @@ class RideTestSample {
     required this.latitude,
     required this.longitude,
     required this.totalAcceleration,
+    this.source = 'esp32',
+    this.deviceId,
+    this.gpsAccuracy = 0,
+    this.gpsSpeed,
+    this.gpsHeading,
+    this.rawPayload = const {},
   });
 
   factory RideTestSample.fromVehicleParameters(VehicleParameters params) {
@@ -93,6 +103,10 @@ class RideTestSample {
       latitude: params.location.latitude,
       longitude: params.location.longitude,
       totalAcceleration: params.totalAcceleration,
+      source: 'esp32',
+      deviceId: params.deviceId,
+      gpsAccuracy: params.location.accuracy,
+      rawPayload: params.toJson(),
     );
   }
 
@@ -108,6 +122,14 @@ class RideTestSample {
       latitude: (json['latitude'] as num? ?? 0).toDouble(),
       longitude: (json['longitude'] as num? ?? 0).toDouble(),
       totalAcceleration: (json['total_acceleration'] as num? ?? 0).toDouble(),
+      source: json['source'] as String? ?? 'esp32',
+      deviceId: json['device_id'] as String?,
+      gpsAccuracy: (json['gps_accuracy'] as num? ?? 0).toDouble(),
+      gpsSpeed: (json['gps_speed'] as num?)?.toDouble(),
+      gpsHeading: (json['gps_heading'] as num?)?.toDouble(),
+      rawPayload: Map<String, dynamic>.from(
+        json['raw_payload'] as Map<String, dynamic>? ?? {},
+      ),
     );
   }
 
@@ -123,6 +145,28 @@ class RideTestSample {
       'latitude': latitude,
       'longitude': longitude,
       'total_acceleration': totalAcceleration,
+      'source': source,
+      'device_id': deviceId,
+      'gps_accuracy': gpsAccuracy,
+      'gps_speed': gpsSpeed,
+      'gps_heading': gpsHeading,
+      'raw_payload': rawPayload,
+      'normalized': {
+        'accel_x': accelX,
+        'accel_y': accelY,
+        'accel_z': accelZ,
+        'speed': speed,
+        'impact_force': impactForce,
+        'orientation': orientation,
+        'total_acceleration': totalAcceleration,
+      },
+      'mobile_location': {
+        'latitude': latitude,
+        'longitude': longitude,
+        'accuracy': gpsAccuracy,
+        'speed': gpsSpeed,
+        'heading': gpsHeading,
+      },
     };
   }
 }
@@ -140,6 +184,8 @@ class RideTestSession {
   final String notes;
   final List<RideTestSample> samples;
   final bool uploadedToFirestore;
+  final bool uploadedToSupabase;
+  final String? supabaseExportPath;
 
   const RideTestSession({
     required this.sessionId,
@@ -154,6 +200,8 @@ class RideTestSession {
     required this.notes,
     required this.samples,
     this.uploadedToFirestore = false,
+    this.uploadedToSupabase = false,
+    this.supabaseExportPath,
   });
 
   factory RideTestSession.start({
@@ -178,7 +226,8 @@ class RideTestSession {
   factory RideTestSession.fromJson(Map<String, dynamic> json) {
     final samples = (json['samples'] as List<dynamic>? ?? [])
         .map(
-            (sample) => RideTestSample.fromJson(sample as Map<String, dynamic>))
+          (sample) => RideTestSample.fromJson(sample as Map<String, dynamic>),
+        )
         .toList();
 
     return RideTestSession(
@@ -202,6 +251,8 @@ class RideTestSession {
       notes: json['notes'] as String? ?? '',
       samples: samples,
       uploadedToFirestore: json['uploaded_to_firestore'] as bool? ?? false,
+      uploadedToSupabase: json['uploaded_to_supabase'] as bool? ?? false,
+      supabaseExportPath: json['supabase_export_path'] as String?,
     );
   }
 
@@ -219,6 +270,8 @@ class RideTestSession {
       'notes': notes,
       'samples': samples.map((sample) => sample.toJson()).toList(),
       'uploaded_to_firestore': uploadedToFirestore,
+      'uploaded_to_supabase': uploadedToSupabase,
+      'supabase_export_path': supabaseExportPath,
     };
   }
 
@@ -230,6 +283,8 @@ class RideTestSession {
     String? notes,
     List<RideTestSample>? samples,
     bool? uploadedToFirestore,
+    bool? uploadedToSupabase,
+    String? supabaseExportPath,
   }) {
     return RideTestSession(
       sessionId: sessionId,
@@ -244,6 +299,8 @@ class RideTestSession {
       notes: notes ?? this.notes,
       samples: samples ?? this.samples,
       uploadedToFirestore: uploadedToFirestore ?? this.uploadedToFirestore,
+      uploadedToSupabase: uploadedToSupabase ?? this.uploadedToSupabase,
+      supabaseExportPath: supabaseExportPath ?? this.supabaseExportPath,
     );
   }
 
@@ -256,6 +313,8 @@ class RideTestSession {
       durationSeconds: durationSeconds,
       totalSamples: totalSamples,
       uploadedToFirestore: uploadedToFirestore,
+      uploadedToSupabase: uploadedToSupabase,
+      supabaseExportPath: supabaseExportPath,
     );
   }
 
@@ -272,6 +331,8 @@ class RideTestSessionSummary {
   final int durationSeconds;
   final int totalSamples;
   final bool uploadedToFirestore;
+  final bool uploadedToSupabase;
+  final String? supabaseExportPath;
 
   const RideTestSessionSummary({
     required this.sessionId,
@@ -281,6 +342,8 @@ class RideTestSessionSummary {
     required this.durationSeconds,
     required this.totalSamples,
     required this.uploadedToFirestore,
+    this.uploadedToSupabase = false,
+    this.supabaseExportPath,
   });
 
   factory RideTestSessionSummary.fromJson(Map<String, dynamic> json) {
@@ -292,6 +355,8 @@ class RideTestSessionSummary {
       durationSeconds: (json['duration_seconds'] as num? ?? 0).toInt(),
       totalSamples: (json['total_samples'] as num? ?? 0).toInt(),
       uploadedToFirestore: json['uploaded_to_firestore'] as bool? ?? false,
+      uploadedToSupabase: json['uploaded_to_supabase'] as bool? ?? false,
+      supabaseExportPath: json['supabase_export_path'] as String?,
     );
   }
 
@@ -304,6 +369,8 @@ class RideTestSessionSummary {
       'duration_seconds': durationSeconds,
       'total_samples': totalSamples,
       'uploaded_to_firestore': uploadedToFirestore,
+      'uploaded_to_supabase': uploadedToSupabase,
+      'supabase_export_path': supabaseExportPath,
     };
   }
 }
@@ -380,7 +447,8 @@ class RideTestSessionStats {
     final deltaLat = (b.latitude - a.latitude) * pi / 180;
     final deltaLng = (b.longitude - a.longitude) * pi / 180;
 
-    final h = sin(deltaLat / 2) * sin(deltaLat / 2) +
+    final h =
+        sin(deltaLat / 2) * sin(deltaLat / 2) +
         cos(lat1) * cos(lat2) * sin(deltaLng / 2) * sin(deltaLng / 2);
     return earthRadius * 2 * atan2(sqrt(h), sqrt(1 - h));
   }

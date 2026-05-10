@@ -16,7 +16,6 @@ import 'services/iot_data_orchestrator_mobile.dart'
     if (dart.library.html) 'services/iot_data_orchestrator_web.dart';
 import 'services/location_enrichment_service.dart';
 import 'services/ml_accident_detector.dart';
-import 'services/model_update_service.dart';
 import 'services/secure_storage_service.dart';
 import 'theme/app_theme.dart';
 
@@ -35,18 +34,8 @@ void main() async {
     options: DefaultFirebaseOptions.currentPlatform,
   );
 
-  final modelUpdateService = ModelUpdateService();
-  final newModelPath = await modelUpdateService.checkAndUpdate();
-
-  try {
-    if (newModelPath != null) {
-      await mlDetector.reloadFromPath(newModelPath);
-    } else {
-      await mlDetector.loadModel();
-    }
-  } catch (_) {
-    // Model load failed. The app will fall back to rule-based behavior.
-  }
+  // Data-collection-first phase: ML runtime stays dormant until a trained
+  // model and on-device inference flow are reintroduced.
 
   sharedHotspotService = HotspotService();
   sharedEnrichmentService = LocationEnrichmentService();

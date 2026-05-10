@@ -1,5 +1,5 @@
 name: ambulance_v2
-description: Emergency Ambulance Response System v2 — ML-powered accident detection with TFLite + Gemini Flash hotspot intelligence.
+description: Emergency Ambulance Response System v2 - data collection first with Gemini Flash hotspot intelligence.
 publish_to: 'none'
 version: 2.0.0+1
 
@@ -36,8 +36,7 @@ dependencies:
   cloud_firestore: ^6.1.2
   firebase_storage: ^13.3.0
 
-  # ML & AI
-  tflite_flutter: ^0.10.4
+  # AI
   google_generative_ai: ^0.4.3
 
   # Local Database
@@ -94,10 +93,6 @@ dev_dependencies:
   bloc_test: ^10.0.0
   json_serializable: ^6.7.1
   flutter_launcher_icons: ^0.14.4
-
-dependency_overrides:
-  tflite_flutter:
-    path: third_party/tflite_flutter
 
 flutter_launcher_icons:
   android: true

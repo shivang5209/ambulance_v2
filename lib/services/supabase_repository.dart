@@ -1,4 +1,6 @@
 import 'dart:async';
+import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -99,6 +101,37 @@ class SupabaseRepository {
     });
   }
 
+  /// Upload a completed ride session JSON/CSV payload to Supabase Storage.
+  ///
+  /// Returns the object path inside the `ride-session-exports` bucket, or null
+  /// when Supabase is not configured for this build.
+  Future<String?> uploadRideSessionExport({
+    required String sessionId,
+    required String payload,
+    String extension = 'json',
+  }) async {
+    if (!_isEnabled) return null;
+
+    final safeExtension = extension.replaceAll(RegExp(r'[^a-zA-Z0-9]'), '');
+    final objectPath =
+        'ride_sessions/$sessionId/ride_session_$sessionId.$safeExtension';
+    final bytes = Uint8List.fromList(utf8.encode(payload));
+
+    await _client!.storage
+        .from(SupabaseConfig.rideSessionExportsBucket)
+        .uploadBinary(
+          objectPath,
+          bytes,
+          fileOptions: FileOptions(
+            contentType: safeExtension == 'csv'
+                ? 'text/csv'
+                : 'application/json',
+            upsert: true,
+          ),
+        );
+    return objectPath;
+  }
+
   Map<String, dynamic> _toRow(VehicleParameters p) {
     return {
       'device_id': p.deviceId,
@@ -148,11 +181,12 @@ class SupabaseRepository {
         .order('start_time', ascending: false)
         .limit(tripLimit);
 
-    final readings = (readingsRaw as List<dynamic>)
-        .cast<Map<String, dynamic>>()
-        .map(_toReadingSnapshot)
-        .toList(growable: false)
-      ..sort((a, b) => a.timestamp.compareTo(b.timestamp));
+    final readings =
+        (readingsRaw as List<dynamic>)
+            .cast<Map<String, dynamic>>()
+            .map(_toReadingSnapshot)
+            .toList(growable: false)
+          ..sort((a, b) => a.timestamp.compareTo(b.timestamp));
 
     final crashes = (crashRaw as List<dynamic>).cast<Map<String, dynamic>>();
     final trips = (tripRaw as List<dynamic>).cast<Map<String, dynamic>>();
@@ -182,16 +216,22 @@ class SupabaseRepository {
     }
 
     final speedSeries = readings.map((reading) => reading.speed).toList();
-    final impactSeries =
-        readings.map((reading) => reading.impactForce).toList();
-    final accelerationSeries =
-        readings.map((reading) => reading.totalAcceleration).toList();
+    final impactSeries = readings
+        .map((reading) => reading.impactForce)
+        .toList();
+    final accelerationSeries = readings
+        .map((reading) => reading.totalAcceleration)
+        .toList();
 
     final speedTotal = speedSeries.fold<double>(0, (sum, value) => sum + value);
-    final impactTotal =
-        impactSeries.fold<double>(0, (sum, value) => sum + value);
-    final accelerationTotal =
-        accelerationSeries.fold<double>(0, (sum, value) => sum + value);
+    final impactTotal = impactSeries.fold<double>(
+      0,
+      (sum, value) => sum + value,
+    );
+    final accelerationTotal = accelerationSeries.fold<double>(
+      0,
+      (sum, value) => sum + value,
+    );
 
     final deviceBuckets = <String, List<SensorReadingSnapshot>>{};
     for (final reading in readings) {
@@ -200,27 +240,32 @@ class SupabaseRepository {
           .add(reading);
     }
 
-    final deviceBreakdown = deviceBuckets.entries.map((entry) {
-      final deviceReadings = entry.value;
-      final avgSpeed = deviceReadings.fold<double>(
-            0,
-            (sum, item) => sum + item.speed,
-          ) /
-          deviceReadings.length;
-      final maxImpact = deviceReadings
-          .map((item) => item.impactForce)
-          .reduce((a, b) => a > b ? a : b);
-      final lastSeen =
-          deviceReadings.isEmpty ? null : deviceReadings.last.timestamp;
-      return DeviceAnalyticsSummary(
-        deviceId: entry.key,
-        readingCount: deviceReadings.length,
-        averageSpeed: avgSpeed,
-        maxImpactForce: maxImpact,
-        lastSeen: lastSeen,
-      );
-    }).toList(growable: false)
-      ..sort((a, b) => b.readingCount.compareTo(a.readingCount));
+    final deviceBreakdown =
+        deviceBuckets.entries
+            .map((entry) {
+              final deviceReadings = entry.value;
+              final avgSpeed =
+                  deviceReadings.fold<double>(
+                    0,
+                    (sum, item) => sum + item.speed,
+                  ) /
+                  deviceReadings.length;
+              final maxImpact = deviceReadings
+                  .map((item) => item.impactForce)
+                  .reduce((a, b) => a > b ? a : b);
+              final lastSeen = deviceReadings.isEmpty
+                  ? null
+                  : deviceReadings.last.timestamp;
+              return DeviceAnalyticsSummary(
+                deviceId: entry.key,
+                readingCount: deviceReadings.length,
+                averageSpeed: avgSpeed,
+                maxImpactForce: maxImpact,
+                lastSeen: lastSeen,
+              );
+            })
+            .toList(growable: false)
+          ..sort((a, b) => b.readingCount.compareTo(a.readingCount));
 
     return SensorAnalyticsSummary(
       readingSampleCount: readings.length,
@@ -248,7 +293,8 @@ class SupabaseRepository {
   SensorReadingSnapshot _toReadingSnapshot(Map<String, dynamic> row) {
     return SensorReadingSnapshot(
       deviceId: row['device_id'] as String? ?? 'unknown',
-      timestamp: DateTime.tryParse(row['timestamp']?.toString() ?? '') ??
+      timestamp:
+          DateTime.tryParse(row['timestamp']?.toString() ?? '') ??
           DateTime.now(),
       speed: (row['speed'] as num?)?.toDouble() ?? 0,
       impactForce: (row['impact_force'] as num?)?.toDouble() ?? 0,

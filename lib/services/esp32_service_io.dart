@@ -246,6 +246,73 @@ class ESP32Service {
     );
   }
 
+  Future<void> notifyRideStarted({
+    required String sessionId,
+    required DateTime startedAt,
+  }) async {
+    await _postRideEvent({
+      'type': 'ride_started',
+      'session_id': sessionId,
+      'started_at': startedAt.toIso8601String(),
+    });
+  }
+
+  Future<void> notifyRideProgress({
+    required String sessionId,
+    required int totalSamples,
+    required int durationSeconds,
+    double? speed,
+    double? totalAcceleration,
+  }) async {
+    await _postRideEvent({
+      'type': 'ride_progress',
+      'session_id': sessionId,
+      'total_samples': totalSamples,
+      'duration_seconds': durationSeconds,
+      if (speed != null) 'speed': speed,
+      if (totalAcceleration != null) 'total_acceleration': totalAcceleration,
+    });
+  }
+
+  Future<void> notifyRideFinished({
+    required String sessionId,
+    required DateTime stoppedAt,
+    required int durationSeconds,
+    required int totalSamples,
+    bool uploadedToSupabase = false,
+  }) async {
+    await _postRideEvent({
+      'type': 'ride_finished',
+      'session_id': sessionId,
+      'stopped_at': stoppedAt.toIso8601String(),
+      'duration_seconds': durationSeconds,
+      'total_samples': totalSamples,
+      'uploaded_to_supabase': uploadedToSupabase,
+    });
+  }
+
+  Future<void> _postRideEvent(Map<String, dynamic> payload) async {
+    final devices = _connectedDevices.values.toList(growable: false);
+    await Future.wait(devices.map((device) async {
+      try {
+        final endpoint = _endpoint(device.ipAddress);
+        final response = await http
+            .post(
+              Uri.parse('$endpoint/ride'),
+              headers: _headers(device.id),
+              body: jsonEncode(payload),
+            )
+            .timeout(const Duration(seconds: 3));
+        if (response.statusCode >= 200 && response.statusCode < 300) {
+          device.lastSeen = DateTime.now();
+          device.isConnected = true;
+        }
+      } catch (e) {
+        debugPrint('Failed to send ride event to ${device.id}: $e');
+      }
+    }));
+  }
+
   /// Send configuration to ESP32 device
   Future<bool> configureDevice(
       String deviceId, Map<String, dynamic> config) async {

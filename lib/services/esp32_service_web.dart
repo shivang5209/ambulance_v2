@@ -29,6 +29,27 @@ class ESP32Service {
 
   void stopDataCollection() {}
 
+  Future<void> notifyRideStarted({
+    required String sessionId,
+    required DateTime startedAt,
+  }) async {}
+
+  Future<void> notifyRideProgress({
+    required String sessionId,
+    required int totalSamples,
+    required int durationSeconds,
+    double? speed,
+    double? totalAcceleration,
+  }) async {}
+
+  Future<void> notifyRideFinished({
+    required String sessionId,
+    required DateTime stoppedAt,
+    required int durationSeconds,
+    required int totalSamples,
+    bool uploadedToSupabase = false,
+  }) async {}
+
   Future<bool> configureDevice(
       String deviceId, Map<String, dynamic> config) async {
     return false;

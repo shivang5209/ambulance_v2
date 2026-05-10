@@ -10,15 +10,18 @@ import 'package:uuid/uuid.dart';
 import '../models/ride_test_session.dart';
 import '../models/vehicle_parameters.dart';
 import 'esp32_service.dart';
+import 'supabase_repository.dart';
 
 class RideTestService {
   RideTestService({
     required ESP32Service esp32Service,
     FirebaseFirestore? firestore,
     SharedPreferences? preferences,
+    SupabaseRepository? supabaseRepository,
   })  : _esp32Service = esp32Service,
         _firestore = firestore ?? FirebaseFirestore.instance,
-        _providedPreferences = preferences;
+        _providedPreferences = preferences,
+        _supabaseRepository = supabaseRepository ?? SupabaseRepository();
 
   static const String indexKey = 'ride_test_sessions';
   static const String _sessionPrefix = 'ride_test_session_json_';
@@ -26,6 +29,7 @@ class RideTestService {
   final ESP32Service _esp32Service;
   final FirebaseFirestore _firestore;
   final SharedPreferences? _providedPreferences;
+  final SupabaseRepository _supabaseRepository;
   final Uuid _uuid = const Uuid();
   final List<RideTestSample> _sampleBuffer = [];
   final StreamController<RideTestSession> _sessionController =
@@ -35,6 +39,7 @@ class RideTestService {
   Timer? _fallbackTimer;
   RideTestSession? _currentSession;
   RideTestSample? _latestSample;
+  DateTime? _lastRideProgressSent;
   bool _isRecording = false;
 
   bool get isRecording => _isRecording;
@@ -54,6 +59,7 @@ class RideTestService {
 
     _sampleBuffer.clear();
     _latestSample = null;
+    _lastRideProgressSent = null;
     _currentSession = RideTestSession.start(
       sessionId: _uuid.v4(),
       sessionType: sessionType,
@@ -66,6 +72,11 @@ class RideTestService {
       const Duration(seconds: 1),
       (_) => _captureFallbackSample(),
     );
+    await _writeSessionMetadata('recording', _currentSession!);
+    unawaited(_esp32Service.notifyRideStarted(
+      sessionId: _currentSession!.sessionId,
+      startedAt: _currentSession!.startTime,
+    ));
     _emitCurrentSession();
     return _currentSession!;
   }
@@ -110,28 +121,31 @@ class RideTestService {
       totalSamples: session.samples.length,
     );
 
-    var uploaded = false;
-    try {
-      await _firestore
-          .collection('ride_test_sessions')
-          .doc(updated.sessionId)
-          .set(updated.toJson());
-      uploaded = true;
-    } catch (_) {
-      uploaded = false;
-    }
-
-    final savedSession = updated.copyWith(uploadedToFirestore: uploaded);
+    final exportPath = await _uploadSessionExport(updated);
+    final savedSession = updated.copyWith(
+      uploadedToSupabase: exportPath != null,
+      supabaseExportPath: exportPath,
+    );
+    final uploaded = await _writeSessionMetadata('completed', savedSession);
+    final finalSession = savedSession.copyWith(uploadedToFirestore: uploaded);
     final prefs = await _prefs();
     await prefs.setString(
       '$_sessionPrefix${savedSession.sessionId}',
-      jsonEncode(savedSession.toJson()),
+      jsonEncode(finalSession.toJson()),
     );
-    await _upsertSummary(savedSession.toSummary());
+    await _upsertSummary(finalSession.toSummary());
+    unawaited(_esp32Service.notifyRideFinished(
+      sessionId: finalSession.sessionId,
+      stoppedAt: finalSession.stopTime ?? DateTime.now(),
+      durationSeconds: finalSession.durationSeconds,
+      totalSamples: finalSession.totalSamples,
+      uploadedToSupabase: finalSession.uploadedToSupabase,
+    ));
     _currentSession = null;
     _sampleBuffer.clear();
     _latestSample = null;
-    return savedSession;
+    _lastRideProgressSent = null;
+    return finalSession;
   }
 
   Future<void> discardCurrentSession() async {
@@ -142,6 +156,7 @@ class RideTestService {
     _isRecording = false;
     _currentSession = null;
     _latestSample = null;
+    _lastRideProgressSent = null;
     _sampleBuffer.clear();
   }
 
@@ -192,23 +207,128 @@ class RideTestService {
         'session_id,session_type,vehicle_mode,timestamp,accel_x,accel_y,accel_z,speed,impact_force,orientation,latitude,longitude,total_acceleration',
       );
     for (final sample in session.samples) {
-      buffer.writeln([
-        session.sessionId,
-        session.sessionType.id,
-        session.vehicleMode.id,
-        sample.timestamp.toIso8601String(),
-        sample.accelX,
-        sample.accelY,
-        sample.accelZ,
-        sample.speed,
-        sample.impactForce,
-        sample.orientation,
-        sample.latitude,
-        sample.longitude,
-        sample.totalAcceleration,
-      ].map(_csvCell).join(','));
+      buffer.writeln(
+        [
+          session.sessionId,
+          session.sessionType.id,
+          session.vehicleMode.id,
+          sample.timestamp.toIso8601String(),
+          sample.accelX,
+          sample.accelY,
+          sample.accelZ,
+          sample.speed,
+          sample.impactForce,
+          sample.orientation,
+          sample.latitude,
+          sample.longitude,
+          sample.totalAcceleration,
+        ].map(_csvCell).join(','),
+      );
     }
     return buffer.toString();
+  }
+
+  Future<RideTestSession> startRideSession({
+    required RideTestSessionType sessionType,
+    required RideTestVehicleMode vehicleMode,
+    RideTestLocation? startLocation,
+  }) {
+    return startSession(
+      sessionType: sessionType,
+      vehicleMode: vehicleMode,
+      startLocation: startLocation,
+    );
+  }
+
+  Future<void> recordSensorSample(VehicleParameters params) {
+    return _onVehicleParameters(params);
+  }
+
+  Future<RideTestSession> endRideSessionAndUpload({
+    RideTestLocation? stopLocation,
+    String notes = '',
+  }) {
+    return stopSession(stopLocation: stopLocation, notes: notes, save: true);
+  }
+
+  RideTestSample _sampleFromVehicleParameters(
+    VehicleParameters params,
+    RideTestLocation mobileLocation,
+  ) {
+    return RideTestSample(
+      timestamp: params.timestamp,
+      accelX: params.accelerationX,
+      accelY: params.accelerationY,
+      accelZ: params.accelerationZ,
+      speed: params.speed,
+      impactForce: params.impactForce,
+      orientation: params.orientation,
+      latitude: mobileLocation.latitude,
+      longitude: mobileLocation.longitude,
+      totalAcceleration: params.totalAcceleration,
+      source: 'esp32',
+      deviceId: params.deviceId,
+      gpsAccuracy: mobileLocation.accuracy,
+      gpsSpeed: mobileLocation.speed,
+      gpsHeading: mobileLocation.heading,
+      rawPayload: params.toJson(),
+    );
+  }
+
+  Future<String?> _uploadSessionExport(RideTestSession session) async {
+    final payload = const JsonEncoder.withIndent('  ').convert({
+      'schema_version': 1,
+      'exported_at': DateTime.now().toIso8601String(),
+      'session': session.toJson(),
+    });
+    try {
+      return await _supabaseRepository.uploadRideSessionExport(
+        sessionId: session.sessionId,
+        payload: payload,
+      );
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<bool> _writeSessionMetadata(
+    String status,
+    RideTestSession session,
+  ) async {
+    try {
+      await _firestore.collection('ride_sessions').doc(session.sessionId).set({
+        'session_id': session.sessionId,
+        'session_type': session.sessionType.id,
+        'vehicle_mode': session.vehicleMode.id,
+        'status': status,
+        'start_time': session.startTime.toIso8601String(),
+        'stop_time': session.stopTime?.toIso8601String(),
+        'start_location': session.startLocation.toJson(),
+        'stop_location': session.stopLocation?.toJson(),
+        'duration_seconds': session.durationSeconds,
+        'total_samples': session.totalSamples,
+        'notes': session.notes,
+        'supabase_export_path': session.supabaseExportPath,
+        'uploaded_to_supabase': session.uploadedToSupabase,
+        'updated_at': DateTime.now().toIso8601String(),
+      }, SetOptions(merge: true));
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<void> _writeSample(RideTestSample sample) async {
+    final session = _currentSession;
+    if (session == null) return;
+    try {
+      await _firestore
+          .collection('ride_sessions')
+          .doc(session.sessionId)
+          .collection('samples')
+          .doc(sample.timestamp.microsecondsSinceEpoch.toString())
+          .set({'session_id': session.sessionId, ...sample.toJson()});
+    } catch (_) {}
   }
 
   Future<RideTestLocation> getCurrentLocation() async {
@@ -226,6 +346,8 @@ class RideTestService {
         latitude: position.latitude,
         longitude: position.longitude,
         accuracy: position.accuracy,
+        speed: position.speed,
+        heading: position.heading,
       );
     } catch (_) {
       return _latestLocationOrZero();
@@ -238,9 +360,10 @@ class RideTestService {
     _sessionController.close();
   }
 
-  void _onVehicleParameters(VehicleParameters params) {
+  Future<void> _onVehicleParameters(VehicleParameters params) async {
     if (!_isRecording || _currentSession == null) return;
-    _addSample(RideTestSample.fromVehicleParameters(params));
+    final mobileLocation = await getCurrentLocation();
+    await _addSample(_sampleFromVehicleParameters(params, mobileLocation));
   }
 
   Future<void> _captureFallbackSample() async {
@@ -259,7 +382,7 @@ class RideTestService {
     final totalAcceleration = sqrt(
       accelX * accelX + accelY * accelY + accelZ * accelZ,
     );
-    _addSample(
+    await _addSample(
       RideTestSample(
         timestamp: DateTime.now(),
         accelX: accelX,
@@ -271,14 +394,44 @@ class RideTestService {
         latitude: location.latitude,
         longitude: location.longitude,
         totalAcceleration: totalAcceleration,
+        source: 'fallback',
+        gpsAccuracy: location.accuracy,
+        gpsSpeed: location.speed,
+        gpsHeading: location.heading,
+        rawPayload: {
+          'source': 'fallback',
+          'generated_at': DateTime.now().toIso8601String(),
+        },
       ),
     );
   }
 
-  void _addSample(RideTestSample sample) {
+  Future<void> _addSample(RideTestSample sample) async {
     _sampleBuffer.add(sample);
     _latestSample = sample;
     _emitCurrentSession();
+    unawaited(_writeSample(sample));
+    _notifyRideProgressIfNeeded(sample);
+  }
+
+  void _notifyRideProgressIfNeeded(RideTestSample sample) {
+    final session = _currentSession;
+    if (session == null) return;
+
+    final now = DateTime.now();
+    final lastSent = _lastRideProgressSent;
+    if (lastSent != null && now.difference(lastSent).inSeconds < 5) {
+      return;
+    }
+
+    _lastRideProgressSent = now;
+    unawaited(_esp32Service.notifyRideProgress(
+      sessionId: session.sessionId,
+      totalSamples: _sampleBuffer.length,
+      durationSeconds: now.difference(session.startTime).inSeconds,
+      speed: sample.speed,
+      totalAcceleration: sample.totalAcceleration,
+    ));
   }
 
   void _emitCurrentSession() {
@@ -299,7 +452,9 @@ class RideTestService {
     return RideTestLocation(
       latitude: latest.latitude,
       longitude: latest.longitude,
-      accuracy: 0,
+      accuracy: latest.gpsAccuracy,
+      speed: latest.gpsSpeed,
+      heading: latest.gpsHeading,
     );
   }
 
